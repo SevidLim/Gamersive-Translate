@@ -48,11 +48,72 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 項目 | 決定 |
 |---|---|
 | GUI 框架 | PySide6，沿用 Desktop-Agent-Pet 的 src/glass.py（Acrylic 毛玻璃、置頂無邊框視窗、側滑動畫） |
-| 視覺語彙 | 參考 Quiet Tab（Claude Agents/repos/chrome-newtab）的半透明毛玻璃與按鍵設計，CSS 改寫為 QSS |
+| 視覺語彙 | 半透明毛玻璃與按鍵設計，規格見本文件「視覺規格」，以 QSS 實作 |
 | 截圖 | dxcam（DXGI Desktop Duplication） |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
+
+### 視覺規格
+
+材質：所有浮層為半透明底加背景模糊。
+
+| 層級 | 底色基準 | 模糊 |
+|---|---|---|
+| 主要控制項（搜尋框、磚塊 hover） | `--panel` | 14–20px |
+| 浮出面板（資料夾、新增視窗） | `--panel` | 26px |
+| 深色浮層（emoji 選單、目標選單、確認面板） | 固定深灰 0.80–0.93 | 16–22px |
+
+- 浮層疊在浮層上時，上層用固定深色，不跟隨主題變數，層次靠明度差拉開。
+
+色彩：
+
+- 前景色由桌布平均亮度決定，寫入 `--text`，並以 `data-ink` 切換面板底色的明暗方向。
+- 刪除確認面板與各類深色浮層固定深底白字，不隨 `data-ink` 變動。
+
+圓角：
+
+| 尺度 | 用途 |
+|---|---|
+| 999px | 膠囊：搜尋框、切換鈕、按鈕、dock 面板 |
+| 16–18px | 面板與磚塊 |
+| 10–12px | 輸入欄位、選單項目 |
+| 50% | 圓形按鈕與圖示底 |
+
+尺寸：所有重複出現的尺寸集中為 CSS 變數，不散落魔術數字。
+
+| 變數 | 用途 |
+|---|---|
+| `--dock-btn` `--dock-w` | 右下面板 |
+| `--add-row` `--add-ctl` | 新增視窗欄位與控制項 |
+| `--radius` | 面板圓角 |
+
+- 同一列的控制項高度必須相等，靠變數鎖定而非個別調整 padding。
+
+動畫時長：
+
+| 動作 | 時長 |
+|---|---|
+| 浮層展開 | 200–220ms |
+| 浮層收合 | 140–160ms |
+| 位移與讓位 | 160–200ms |
+| 微互動（hover、色彩） | 120–160ms |
+
+- 從觸發點長出來：變形原點對準觸發元素中心。
+- 只動該動的：未受影響的元素保持靜止。
+- 收合一律比展開快。
+- 展開與收合成對，收合播完才隱藏。
+- 可中斷：動畫保留 handle，重複觸發時取消前一次。
+- 動畫可整體關閉：關閉時所有 duration 與 delay 歸零，JS 端跳過 `Element.animate()` 並改為立即切換狀態。
+- 新功能加入動畫時必須同時處理關閉路徑。
+
+緩動曲線：
+
+| 情境 | 曲線 |
+|---|---|
+| 進場 | cubic-bezier(0.16, 1, 0.3, 1) |
+| 位移 | cubic-bezier(0.2, 0.9, 0.3, 1) |
+| 退場 | ease-in 或 cubic-bezier(0.4, 0, 0.9, 0.35) |
 
 ### 支援的遊戲顯示模式
 
