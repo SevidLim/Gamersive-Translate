@@ -21,7 +21,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 |---|---|---|
 | 0 | 設定 | done |
 | 1 | 追問對齊 | done |
-| 2 | 原型 | doing |
+| 2 | 原型 | done |
 | 3 | 規格（to-spec） | todo |
 | 4 | 拆票（to-tickets） | todo |
 | 5 | 實作 | todo |
@@ -115,18 +115,13 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | PROTOTYPE-ocr-bench.py | dxcam 截圖或讀已存截圖，RapidOCR 辨識，印出耗時與結果。參數：--ver v6、v5、v5-eslav；--region full、top、bottom；--cells（九宮格 1–9）；--image；--delay；--runs；--output |
 | PROTOTYPE-surya.py | Surya 辨識同一張截圖 3 次，印出耗時、記憶體峰值、VRAM 已用。參數為 llama 資料夾名稱（llama.cpp 或 llama.cpp-cuda） |
 | PROTOTYPE-memwatch.py | 取樣本程序與子程序的記憶體峰值 |
-| PROTOTYPE-shot-000539.png | 測試用遊戲截圖（2560x1440，含英文任務文字與俄文標語） |
 | .venv | dxcam、rapidocr、onnxruntime |
 | .venv-surya | surya-ocr、torch 2.14.1+cpu、psutil |
 | llama.cpp | llama.cpp b11669 Windows CPU x64 |
 | llama.cpp-cuda | llama.cpp b11669 Windows CUDA 12.4 x64 與 cudart |
 | .gitignore | 排除 .venv/、__pycache__/、.venv-*/、llama.cpp/、llama.cpp-cuda/ |
 
-### 測試規則
-
-- OCR 比較測試一律使用同一張截圖 PROTOTYPE-shot-000539.png。
-
-### 實測結果（同一張截圖 PROTOTYPE-shot-000539.png）
+### 實測結果（同一張遊戲截圖，2560x1440，含英文任務文字與俄文標語）
 
 | 項目 | RapidOCR v6 small（CPU） | RapidOCR v5 mobile（CPU） | Surya（GPU） |
 |---|---|---|---|
@@ -142,6 +137,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 - dxcam 截圖 8–11ms，能截到無邊框模式的遊戲畫面。
 - RapidOCR v5 搭配 eslav 模型：俄文全對，英文有 Joumal 錯字；只涵蓋俄、白俄、烏克蘭、英文。
+- Surya（GPU）在遊戲進行中：熱機後 4.6–4.8 秒，第 1 次 23.4 秒，記憶體峰值 2397MB，VRAM 已用由 10287MB 增至 11226MB，辨識結果與未開遊戲時相同；該遊戲於辨識期間未受影響。
 - Surya 在 CPU（llama.cpp CPU 版）：熱機後 15.9–17.7 秒，記憶體峰值 3589MB，辨識結果與 GPU 版相同。
 - RapidOCR 依文字行高度排序輸出，全畫面時左右欄同高度的文字會交錯；Surya 依區塊輸出，同區塊多行合為一段。
 - 同一行俄文 КАРТОФЕЛИНА：v6 輸出錯誤結果 KAPTOENHA，信心分數 0.94；v5 eslav 輸出正確結果，信心分數 0.89。
@@ -149,9 +145,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 遊戲進行中跑 Surya（GPU），實測遊戲 FPS 與 VRAM 的影響。
 - 原型提交到 prototype/ocr-bench 分支。
-- 測試截圖 PROTOTYPE-shot-000539.png 於測試完成後刪除。
 - 進入主線步驟 3 to-spec。
 
 ## 未決
