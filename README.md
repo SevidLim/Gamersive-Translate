@@ -9,6 +9,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 位置 | Claude Agents/projects/Gamersive-Translate |
 | GitHub | SevidLim/Gamersive-Translate（公開），remote 為 origin |
 | 規格 | GitHub issue #1「GT 規格：遊戲內翻譯工具」 |
+| 實作票 | #1 的子 issue：#2 邊條與面板開合、#3 Alt+Tab 展開與焦點、#4 文字翻譯頁 + Google 翻譯、#5 OpenAI 相容與 Ollama 引擎、#6 OCR 頁（RapidOCR）、#7 Surya 主引擎與備用切換、#8 設定：螢幕、動畫、全螢幕提示 |
+| 票的相依 | #3、#4、#8 等 #2；#5、#6 等 #4；#7 等 #6 |
 | 分支 | master；原型在 prototype/ocr-bench |
 | 開發流程 | Matt Pocock 主線 skill（按需讀取，母版在 Claude Agents/Workspace/mattpocock-skills） |
 | Issue tracker | GitHub Issues，以 gh CLI 操作 |
@@ -24,7 +26,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 1 | 追問對齊 | done |
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
-| 4 | 拆票（to-tickets） | todo |
+| 4 | 拆票（to-tickets） | done |
 | 5 | 實作 | todo |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
@@ -207,7 +209,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 進入主線步驟 4 to-tickets。
+- 主線步驟 5 實作，從 #2 開始。
 
 ## 未決
 
