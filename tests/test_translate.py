@@ -3,7 +3,7 @@
 import http.client
 import json
 
-from gt.translate import AUTO, GoogleTranslator, OllamaTranslator, OpenAICompatibleTranslator, make_translator
+from gt.translate import AUTO, ENGINES, GoogleTranslator, OllamaTranslator, OpenAICompatibleTranslator, make_translator
 
 
 class FakePost:
@@ -106,11 +106,10 @@ def test_openai_request_content():
         {"role": "user", "content": "Hello"}]}
 
 
-def test_openai_explicit_source_in_prompt_and_no_key_no_auth_header():
+def test_openai_no_key_sends_empty_bearer():
     post = FakePost(body=openai_body("你好"))
     OpenAICompatibleTranslator("http://h/v1", "", "m", post).translate("Hola", "es", "zh-TW")
-    assert post.headers == {}
-    assert post.calls[0][1]["messages"][0]["content"] == "把使用者的文字從 es 翻成 zh-TW，只輸出譯文。"
+    assert post.headers == {"Authorization": "Bearer "}
 
 
 def test_openai_parses_translation():
@@ -131,9 +130,13 @@ def test_openai_failures():
     assert t(FakePost(body=b"<html>")).error == "回應格式無法解析"
 
 
-def test_openai_missing_settings_send_nothing():
+def test_openai_missing_base_url_returns_request_failure():
+    r = OpenAICompatibleTranslator("", "K", "m").translate("Hi", AUTO, "zh-TW")
+    assert r.error.startswith("請求失敗：")
+
+
+def test_openai_missing_model_sends_nothing():
     post = FakePost()
-    assert OpenAICompatibleTranslator("", "K", "m", post).translate("Hi", AUTO, "zh-TW").error == "未設定 base URL"
     assert OpenAICompatibleTranslator("http://h/v1", "K", "", post).translate("Hi", AUTO, "zh-TW").error == "未設定模型"
     assert post.calls == []
 
@@ -167,6 +170,13 @@ def test_ollama_missing_model_sends_nothing():
     assert post.calls == []
 
 
+def test_ollama_missing_endpoint_sends_nothing():
+    post = FakePost()
+    r = OllamaTranslator("", "", post).translate("Hi", AUTO, "zh-TW")
+    assert (r.engine, r.error) == ("Ollama", "未設定端點")
+    assert post.calls == []
+
+
 def test_make_translator_uses_selected_engine(monkeypatch):
     import gt.translate as t
     post = FakePost(body=b"{}")
@@ -178,3 +188,9 @@ def test_make_translator_uses_selected_engine(monkeypatch):
                               ("ollama", "http://l:11434/api/chat", "Ollama")]:
         r = make_translator({**cfg, "engine": engine}).translate("Hi", AUTO, "zh-TW")
         assert (post.calls[-1][0], r.engine) == (url, name)
+    assert make_translator({**cfg, "engine": "unknown"}).name == "Google"
+
+
+def test_engine_table_lists_engines_and_fields():
+    assert [(k, e.cls.name) for k, e in ENGINES.items()] == [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
+    assert ENGINES["ollama"].fields == [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)]

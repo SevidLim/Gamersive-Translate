@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from gt import debuglog, platform_win
+from gt.translate import ENGINES
 
 # 視覺規格（README「視覺規格」）
 STRIP_W = 6
@@ -171,24 +172,16 @@ class Panel(QWidget):
         self.output.setReadOnly(True)
         self.output.setFocusPolicy(Qt.ClickFocus)
         self.engine_box = QComboBox()                   # 最小設定入口：引擎與其欄位（完整設定頁屬 #8）
-        engines = [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
-        for key, label in engines:
-            self.engine_box.addItem(label, key)
-        # 各引擎的欄位：(config 欄位, 提示文字, 是否遮罩)
-        engine_fields = {
-            "google": [("google_api_key", "Google API key", True)],
-            "openai": [("openai_base_url", "base URL", False), ("openai_api_key", "API key", True),
-                       ("openai_model", "model", False)],
-            "ollama": [("ollama_endpoint", "端點", False), ("ollama_model", "model", False)],
-        }
+        for key, engine in ENGINES.items():
+            self.engine_box.addItem(engine.cls.name, key)
         self.engine_rows = {}
         settings = QVBoxLayout()
         settings.addWidget(self.engine_box)
-        for key, fields in engine_fields.items():
+        for key, engine in ENGINES.items():
             w = QWidget()
             col = QVBoxLayout(w)
             col.setContentsMargins(0, 0, 0, 0)
-            for field, hint, secret in fields:
+            for field, hint, secret in engine.fields:
                 edit = QLineEdit(cfg[field])
                 edit.setPlaceholderText(hint)
                 if secret:
@@ -197,8 +190,8 @@ class Panel(QWidget):
                 col.addWidget(edit)
             self.engine_rows[key] = w
             settings.addWidget(w)
-        self.engine_box.currentIndexChanged.connect(self._engine_selected)
         self.engine_box.setCurrentIndex(max(0, self.engine_box.findData(cfg["engine"])))
+        self.engine_box.currentIndexChanged.connect(self._engine_selected)
         self._show_engine_fields()
         self.status = QLabel()                          # 面板底部的短暫失敗訊息
         self.status.setObjectName("status")

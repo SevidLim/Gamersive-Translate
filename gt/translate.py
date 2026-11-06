@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from typing import Callable
 
 AUTO = "auto"
 TIMEOUT_S = 10
@@ -53,32 +54,18 @@ class GoogleTranslator:
         payload = {"q": text, "target": target, "format": "text"}
         if source != AUTO:
             payload["source"] = source
-        try:
-            status, body = self.post(f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload)
-        except OSError as e:                            # 逾時、DNS、連不上
-            return Result(self.name, error=f"連線失敗：{e}")
-        except (ValueError, http.client.HTTPException) as e:  # 例如 URL 含控制字元（http.client.InvalidURL）
-            return Result(self.name, error=f"請求失敗：{e}")
-        try:
-            data = json.loads(body)
-            if status != 200:
-                return Result(self.name, error=f"HTTP {status}：{data['error']['message']}")
-            return Result(self.name, text=data["data"]["translations"][0]["translatedText"])
-        except (ValueError, KeyError, IndexError, TypeError):
-            if status != 200:
-                return Result(self.name, error=f"HTTP {status}")
-            return Result(self.name, error="回應格式無法解析")
+        return _chat(self.name, self.post, f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload, None,
+                     lambda d: d["data"]["translations"][0]["translatedText"], lambda d: d["error"]["message"])
 
 
 def _messages(text, source, target):
     """LLM 引擎共用的提示：system 指示翻譯方向，user 為原文。"""
-    direction = f"翻成 {target}" if source == AUTO else f"從 {source} 翻成 {target}"
-    return [{"role": "system", "content": f"把使用者的文字{direction}，只輸出譯文。"},
+    return [{"role": "system", "content": f"把使用者的文字翻成 {target}，只輸出譯文。"},
             {"role": "user", "content": text}]
 
 
 def _chat(name, post, url, payload, headers, read_text, read_error):
-    """送出聊天請求並解析；錯誤處理比照 GoogleTranslator。"""
+    """送出請求並解析；所有引擎共用的錯誤處理。"""
     try:
         status, body = post(url, payload, headers)
     except OSError as e:                                # 逾時、DNS、連不上
@@ -109,11 +96,9 @@ class OpenAICompatibleTranslator:
         self.base_url, self.api_key, self.model, self.post = base_url, api_key, model, post
 
     def translate(self, text, source, target):
-        if not self.base_url:
-            return Result(self.name, error="未設定 base URL")
         if not self.model:
             return Result(self.name, error="未設定模型")
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        headers = {"Authorization": f"Bearer {self.api_key}"}
         return _chat(self.name, self.post, f"{self.base_url.rstrip('/')}/chat/completions",
                      {"model": self.model, "messages": _messages(text, source, target)}, headers,
                      lambda d: d["choices"][0]["message"]["content"], lambda d: d["error"]["message"])
@@ -129,6 +114,8 @@ class OllamaTranslator:
         self.endpoint, self.model, self.post = endpoint, model, post
 
     def translate(self, text, source, target):
+        if not self.endpoint:
+            return Result(self.name, error="未設定端點")
         if not self.model:
             return Result(self.name, error="未設定模型")
         return _chat(self.name, self.post, f"{self.endpoint.rstrip('/')}/api/chat",
@@ -136,10 +123,27 @@ class OllamaTranslator:
                      lambda d: d["message"]["content"], lambda d: d["error"])
 
 
+@dataclass
+class Engine:
+    cls: type                                           # 引擎類別，顯示名稱為 cls.name
+    fields: list                                        # 設定欄位：(config 欄位, placeholder, 是否遮罩)
+    build: Callable                                     # cfg -> 翻譯引擎
+
+
+# 引擎表：key 為 cfg["engine"] 的值
+ENGINES = {
+    "google": Engine(GoogleTranslator, [("google_api_key", "Google API key", True)],
+                     lambda cfg: GoogleTranslator(cfg["google_api_key"], http_post)),
+    "openai": Engine(OpenAICompatibleTranslator,
+                     [("openai_base_url", "base URL", False), ("openai_api_key", "API key", True),
+                      ("openai_model", "model", False)],
+                     lambda cfg: OpenAICompatibleTranslator(cfg["openai_base_url"], cfg["openai_api_key"],
+                                                            cfg["openai_model"], http_post)),
+    "ollama": Engine(OllamaTranslator, [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)],
+                     lambda cfg: OllamaTranslator(cfg["ollama_endpoint"], cfg["ollama_model"], http_post)),
+}
+
+
 def make_translator(cfg):
-    """依 cfg["engine"]（google / openai / ollama）建立翻譯引擎。"""
-    if cfg["engine"] == "openai":
-        return OpenAICompatibleTranslator(cfg["openai_base_url"], cfg["openai_api_key"], cfg["openai_model"], http_post)
-    if cfg["engine"] == "ollama":
-        return OllamaTranslator(cfg["ollama_endpoint"], cfg["ollama_model"], http_post)
-    return GoogleTranslator(cfg["google_api_key"], http_post)
+    """依 cfg["engine"] 從引擎表建立翻譯引擎；不在表中時用 Google。"""
+    return ENGINES.get(cfg["engine"], ENGINES["google"]).build(cfg)
