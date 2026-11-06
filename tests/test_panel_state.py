@@ -99,3 +99,11 @@ def test_switching_to_app_while_expanded_only_refocuses_input():
     commands = feed(m, Event.APP_ACTIVATED)
     assert m.state is State.EXPANDED
     assert commands == [Command.FOCUS_INPUT]
+
+
+def test_app_activation_during_collapse_animation_reverses_into_expand():
+    m = PanelStateMachine()
+    feed(m, Event.STRIP_ENTER, Event.HOVER_TIMEOUT, Event.ANIMATION_DONE, Event.ESC_PRESSED)
+    commands = feed(m, Event.APP_ACTIVATED)
+    assert m.state is State.EXPANDING
+    assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]

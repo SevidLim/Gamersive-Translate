@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | todo |
+| 5 | 實作 | doing（#2、#3 done） |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
 
@@ -51,6 +51,16 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | Python | 3.10.11 |
 | git | 2.49.0.windows.1 |
 | gh CLI | 2.103.3，已登入 SevidLim（keyring，https，scope：gist、read:org、repo、workflow） |
+| 專案虛擬環境 | 專案根目錄 .venv（PySide6 6.12.0、pytest 9.2.0） |
+
+執行方式（PowerShell，於專案根目錄）：
+
+| 動作 | 指令 |
+|---|---|
+| 啟動 | .venv\Scripts\python -m gt |
+| 測試 | .venv\Scripts\python -m pytest |
+| 結束 | 終端機按 Ctrl+C |
+| 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
 
 ## 產品規格
 
@@ -134,10 +144,15 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 ### 邊條與面板
 
 - 收合時螢幕右緣露出邊條：寬 6px、高 120px、垂直置中、半透明。
-- 滑鼠停在邊條 1.5 秒展開面板。
+- 面板尺寸 420x640，垂直置中，Acrylic 毛玻璃上疊深灰 tint，不透明度 0.30。
+- 滑鼠停在邊條展開面板：從進入邊條到完全展開共 1.5 秒（停留 1290ms ＋ 展開動畫 210ms）。
 - Alt+Tab 切到本程式時自動展開面板。
-- 展開後焦點進入文字翻譯頁的輸入框，不自動截圖。
-- 面板失去焦點即收合：點遊戲畫面、Alt+Tab 切走、按 Esc。
+- 滑鼠停留展開與 Alt+Tab 展開後，焦點都進入文字翻譯頁的輸入框，不自動截圖。
+- 面板收合：點其他視窗、Alt+Tab 切走、按 Esc。
+- 面板展開期間以前景切換事件判斷失去焦點；前景切到 Alt+Tab 過渡視窗（class ForegroundStaging、XamlExplorerHostIslandWindow）不視為失去焦點。
+- Alt+Tab 清單中的「Gamersive-Translate」為一個 1x1、位於所有螢幕範圍外的主視窗；面板取得前景後隱藏主視窗，面板收合後以不啟用方式重新顯示。
+- 程式啟動時與每次面板收合後，主視窗短暫取得前景再交還原本的 app，使「Gamersive-Translate」在 Alt+Tab 清單排第二；交接期間不觸發展開與收合。
+- 工作列有「Gamersive-Translate」按鈕，面板展開期間消失。
 - 面板預設貼主螢幕右緣，設定中可切換螢幕。
 
 ### 文字翻譯頁
@@ -217,7 +232,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 主線步驟 5 實作，從 #2 開始。
+- 主線步驟 5 實作：下一張 #4，之後依序 #5、#6、#7、#8。
 
 ## 未決
 
@@ -228,4 +243,4 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - Surya 結束時 llama-server 清理停住的處理方式。
 - config.json 內容損毀時的啟動方式。
 - Acrylic 開啟失敗時，不透明底的圓角裁切。
-- 偶發的面板不透明底（Acrylic 回報成功時）的原因。
+- 偶發的面板不透明底（Acrylic 回報成功時）的原因；debug.log 保留 acrylic 結果紀錄。
