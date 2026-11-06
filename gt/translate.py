@@ -4,7 +4,7 @@
 成功時 Result.text 為譯文；失敗時 Result.error 為原因，Result.engine 為引擎名稱。
 來源語言傳 AUTO 表示自動偵測。
 
-網路請求層 post(url, payload) -> (狀態碼, 回應內容 bytes) 由外部注入，測試以假回應取代。
+網路請求層 post(url, payload, headers) -> (狀態碼, 回應內容 bytes) 由外部注入，測試以假回應取代。
 """
 
 import http.client
@@ -25,10 +25,10 @@ class Result:
     error: str = None
 
 
-def http_post(url, payload):
+def http_post(url, payload, headers=None):
     """以 JSON 送出 POST；HTTP 錯誤狀態也回傳 (狀態碼, 內容)，連線失敗則丟出 OSError。"""
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
-                                 headers={"Content-Type": "application/json; charset=utf-8"})
+                                 headers={"Content-Type": "application/json; charset=utf-8", **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
             return r.status, r.read()
@@ -68,3 +68,78 @@ class GoogleTranslator:
             if status != 200:
                 return Result(self.name, error=f"HTTP {status}")
             return Result(self.name, error="回應格式無法解析")
+
+
+def _messages(text, source, target):
+    """LLM 引擎共用的提示：system 指示翻譯方向，user 為原文。"""
+    direction = f"翻成 {target}" if source == AUTO else f"從 {source} 翻成 {target}"
+    return [{"role": "system", "content": f"把使用者的文字{direction}，只輸出譯文。"},
+            {"role": "user", "content": text}]
+
+
+def _chat(name, post, url, payload, headers, read_text, read_error):
+    """送出聊天請求並解析；錯誤處理比照 GoogleTranslator。"""
+    try:
+        status, body = post(url, payload, headers)
+    except OSError as e:                                # 逾時、DNS、連不上
+        return Result(name, error=f"連線失敗：{e}")
+    except (ValueError, http.client.HTTPException) as e:  # 例如 URL 含控制字元
+        return Result(name, error=f"請求失敗：{e}")
+    try:
+        data = json.loads(body)
+        if status != 200:
+            return Result(name, error=f"HTTP {status}：{read_error(data)}")
+        text = read_text(data)
+        if not isinstance(text, str):
+            raise TypeError
+        return Result(name, text=text)
+    except (ValueError, KeyError, IndexError, TypeError):
+        if status != 200:
+            return Result(name, error=f"HTTP {status}")
+        return Result(name, error="回應格式無法解析")
+
+
+class OpenAICompatibleTranslator:
+    """OpenAI 相容 Chat Completions：POST {base_url}/chat/completions，Bearer 認證。
+    https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create"""
+
+    name = "OpenAI 相容"
+
+    def __init__(self, base_url, api_key, model, post=http_post):
+        self.base_url, self.api_key, self.model, self.post = base_url, api_key, model, post
+
+    def translate(self, text, source, target):
+        if not self.base_url:
+            return Result(self.name, error="未設定 base URL")
+        if not self.model:
+            return Result(self.name, error="未設定模型")
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        return _chat(self.name, self.post, f"{self.base_url.rstrip('/')}/chat/completions",
+                     {"model": self.model, "messages": _messages(text, source, target)}, headers,
+                     lambda d: d["choices"][0]["message"]["content"], lambda d: d["error"]["message"])
+
+
+class OllamaTranslator:
+    """Ollama /api/chat，stream 關閉時回傳單一 JSON；錯誤為 {"error": "..."}。
+    https://docs.ollama.com/api/chat、https://docs.ollama.com/api/errors"""
+
+    name = "Ollama"
+
+    def __init__(self, endpoint, model, post=http_post):
+        self.endpoint, self.model, self.post = endpoint, model, post
+
+    def translate(self, text, source, target):
+        if not self.model:
+            return Result(self.name, error="未設定模型")
+        return _chat(self.name, self.post, f"{self.endpoint.rstrip('/')}/api/chat",
+                     {"model": self.model, "messages": _messages(text, source, target), "stream": False}, None,
+                     lambda d: d["message"]["content"], lambda d: d["error"])
+
+
+def make_translator(cfg):
+    """依 cfg["engine"]（google / openai / ollama）建立翻譯引擎。"""
+    if cfg["engine"] == "openai":
+        return OpenAICompatibleTranslator(cfg["openai_base_url"], cfg["openai_api_key"], cfg["openai_model"], http_post)
+    if cfg["engine"] == "ollama":
+        return OllamaTranslator(cfg["ollama_endpoint"], cfg["ollama_model"], http_post)
+    return GoogleTranslator(cfg["google_api_key"], http_post)

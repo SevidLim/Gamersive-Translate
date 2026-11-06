@@ -12,6 +12,12 @@ DEFAULTS = {
     "google_api_key": "",
     "source_lang": "auto",                      # 自動偵測
     "target_lang": "zh-TW",                     # 繁體中文
+    "engine": "google",                         # google / openai / ollama
+    "openai_base_url": "",
+    "openai_api_key": "",
+    "openai_model": "",
+    "ollama_endpoint": "http://localhost:11434",
+    "ollama_model": "",
 }
 
 

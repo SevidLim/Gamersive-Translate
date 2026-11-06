@@ -7,9 +7,8 @@ import threading
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
-from gt import config, platform_win
+from gt import config, platform_win, translate
 from gt.panel_state import Command, Event, PanelStateMachine, State
-from gt.translate import GoogleTranslator
 from gt.ui import EXPAND_MS, HostWindow, Panel, Strip
 
 HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全展開共 1.5 秒
@@ -32,24 +31,24 @@ def main():
     screen = app.primaryScreen()
     machine = PanelStateMachine()
     strip = Strip(screen)
-    panel = Panel(screen, cfg["google_api_key"])
+    panel = Panel(screen, cfg)
     relay = _Relay()
     relay.done.connect(panel.show_result)
 
     def on_translate(text):
-        translator = GoogleTranslator(cfg["google_api_key"])
+        translator = translate.make_translator(cfg)
         src, dst = cfg["source_lang"], cfg["target_lang"]
         # 網路請求在背景執行緒，不卡 UI
         threading.Thread(target=lambda: relay.done.emit(translator.translate(text, src, dst)),
                          daemon=True).start()
 
-    def on_api_key(key):
-        if key != cfg["google_api_key"]:
-            cfg["google_api_key"] = key
+    def on_setting(field, value):
+        if value != cfg[field]:
+            cfg[field] = value
             config.save(cfg)
 
     panel.translate_requested.connect(on_translate)
-    panel.api_key_changed.connect(on_api_key)
+    panel.setting_changed.connect(on_setting)
     host = HostWindow(screen)
     handoff = {"active": False}                   # host 短暫啟用、交還前景期間為 True
 

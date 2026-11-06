@@ -7,7 +7,7 @@
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from gt import debuglog, platform_win
 
@@ -37,6 +37,12 @@ QPlainTextEdit, QLineEdit {{
 }}
 QPlainTextEdit:focus, QLineEdit:focus {{ border-color: rgba(255, 255, 255, 0.40); }}
 QLineEdit {{ min-height: {CTL_H - 14}px; max-height: {CTL_H - 14}px; }}
+QComboBox {{
+    color: #f2f2f5; background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
+    padding: 0 8px; min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px;
+}}
+QComboBox QAbstractItemView {{ color: #f2f2f5; background: rgb(32, 32, 40); }}
 QPushButton {{
     color: #f2f2f5; background: rgba(255, 255, 255, 0.14);
     border: 1px solid rgba(255, 255, 255, 0.20); border-radius: {CTL_H // 2 - 1}px;  /* 膠囊：半徑＝按鈕高的一半 */
@@ -135,9 +141,9 @@ class Panel(QWidget):
     focus_lost = Signal()
     animation_done = Signal()
     translate_requested = Signal(str)            # 原文
-    api_key_changed = Signal(str)
+    setting_changed = Signal(str, str)           # config 欄位名、值
 
-    def __init__(self, screen, api_key=""):
+    def __init__(self, screen, cfg):
         super().__init__(None, TOP_FLAGS)
         self.screen_geo = screen.geometry()
         self.use_acrylic = platform_win.IS_WIN
@@ -164,9 +170,36 @@ class Panel(QWidget):
         self.output = QPlainTextEdit()                  # 文字翻譯頁下方：譯文
         self.output.setReadOnly(True)
         self.output.setFocusPolicy(Qt.ClickFocus)
-        self.key_edit = QLineEdit(api_key)              # 最小設定入口：Google API key（完整設定頁屬 #8）
-        self.key_edit.setPlaceholderText("Google API key")
-        self.key_edit.setEchoMode(QLineEdit.Password)
+        self.engine_box = QComboBox()                   # 最小設定入口：引擎與其欄位（完整設定頁屬 #8）
+        engines = [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
+        for key, label in engines:
+            self.engine_box.addItem(label, key)
+        # 各引擎的欄位：(config 欄位, 提示文字, 是否遮罩)
+        engine_fields = {
+            "google": [("google_api_key", "Google API key", True)],
+            "openai": [("openai_base_url", "base URL", False), ("openai_api_key", "API key", True),
+                       ("openai_model", "model", False)],
+            "ollama": [("ollama_endpoint", "端點", False), ("ollama_model", "model", False)],
+        }
+        self.engine_rows = {}
+        settings = QVBoxLayout()
+        settings.addWidget(self.engine_box)
+        for key, fields in engine_fields.items():
+            w = QWidget()
+            col = QVBoxLayout(w)
+            col.setContentsMargins(0, 0, 0, 0)
+            for field, hint, secret in fields:
+                edit = QLineEdit(cfg[field])
+                edit.setPlaceholderText(hint)
+                if secret:
+                    edit.setEchoMode(QLineEdit.Password)
+                edit.editingFinished.connect(lambda f=field, e=edit: self.setting_changed.emit(f, e.text().strip()))
+                col.addWidget(edit)
+            self.engine_rows[key] = w
+            settings.addWidget(w)
+        self.engine_box.currentIndexChanged.connect(self._engine_selected)
+        self.engine_box.setCurrentIndex(max(0, self.engine_box.findData(cfg["engine"])))
+        self._show_engine_fields()
         self.status = QLabel()                          # 面板底部的短暫失敗訊息
         self.status.setObjectName("status")
         self.status.setWordWrap(True)
@@ -178,17 +211,25 @@ class Panel(QWidget):
         box.addWidget(self.input, 1)
         box.addLayout(row)
         box.addWidget(self.output, 1)
-        box.addWidget(self.key_edit)
+        box.addLayout(settings)
         box.addWidget(self.status)
         self.input.submitted.connect(self._submit)
         self.translate_btn.clicked.connect(self._submit)
-        self.key_edit.editingFinished.connect(lambda: self.api_key_changed.emit(self.key_edit.text().strip()))
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
         self._anim.valueChanged.connect(self._step)
         self._anim.finished.connect(self.animation_done)
         self._ensure_acrylic()                          # 啟動時先套 Acrylic，第一次展開不再等待
+
+    def _show_engine_fields(self):
+        current = self.engine_box.currentData()
+        for key, w in self.engine_rows.items():
+            w.setVisible(key == current)
+
+    def _engine_selected(self):
+        self._show_engine_fields()
+        self.setting_changed.emit("engine", self.engine_box.currentData())
 
     def play_expand(self):
         if self.isHidden():
