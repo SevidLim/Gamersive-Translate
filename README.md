@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2、#3 done） |
+| 5 | 實作 | doing（#2、#3、#4 done） |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
 
@@ -151,15 +151,20 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 面板收合：點其他視窗、Alt+Tab 切走、按 Esc。
 - 面板展開期間以前景切換事件判斷失去焦點；前景切到 Alt+Tab 過渡視窗（class ForegroundStaging、XamlExplorerHostIslandWindow）不視為失去焦點。
 - Alt+Tab 清單中的「Gamersive-Translate」為一個 1x1、位於所有螢幕範圍外的主視窗；面板取得前景後隱藏主視窗，面板收合後以不啟用方式重新顯示。
-- 程式啟動時與每次面板收合後，主視窗短暫取得前景再交還原本的 app，使「Gamersive-Translate」在 Alt+Tab 清單排第二；交接期間不觸發展開與收合。
+- 程式啟動時與每次面板收合後，主視窗短暫取得前景再交還原本的 app；交接期間不觸發展開與收合。
+- 「Gamersive-Translate」在 Alt+Tab 清單排第二。
 - 工作列有「Gamersive-Translate」按鈕，面板展開期間消失。
 - 面板預設貼主螢幕右緣，設定中可切換螢幕。
 
 ### 文字翻譯頁
 
-- 上下分屏：上方輸入原文，下方顯示譯文。
-- 來源語言預設自動偵測，目標語言預設繁體中文。
+- 上下分屏：上方輸入原文，下方顯示譯文（唯讀）；中間一列為語言標示「自動偵測 → 繁體中文」與膠囊形翻譯按鈕。
+- 來源語言預設自動偵測，目標語言預設繁體中文（config.json：source_lang "auto"、target_lang "zh-TW"）。
 - 按 Enter 或翻譯按鈕送出，Shift+Enter 換行。
+- 翻譯在背景執行，進行中翻譯按鈕停用。
+- 翻譯失敗時原文保留，面板底部以紅底訊息顯示 4 秒。
+- 面板最下方有 Google API key 欄位（遮罩顯示），按 Enter 或離開欄位時寫入 config.json 的 google_api_key。
+- 輸入欄位圓角 11px、半透明底；按鈕膠囊形，圓角半徑為按鈕高度的一半。
 
 ### OCR 頁
 
@@ -172,7 +177,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 | 引擎 | 接法 |
 |---|---|
-| Google（預設） | 官方 Cloud Translation API，需 API key，每月前 50 萬字元免費 |
+| Google（預設） | Cloud Translation Basic（v2），API key 認證，key 以網址參數傳送並經網址編碼，format=text，不帶來源語言即自動偵測；每月前 50 萬字元免費 |
 | 雲端模型 | OpenAI 相容格式（base URL + key + model），可接 Claude、Gemini、OpenRouter 等 |
 | 本地模型 | Ollama /api/chat |
 
@@ -232,7 +237,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 主線步驟 5 實作：下一張 #4，之後依序 #5、#6、#7、#8。
+- 主線步驟 5 實作：下一張 #5，之後依序 #6、#7、#8。
 
 ## 未決
 
