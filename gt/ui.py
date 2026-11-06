@@ -5,9 +5,9 @@
 側滑也照 glass.py：視窗寬度從 0 變到全寬，內容固定全寬、靠左貼齊，看起來是滑出來。
 """
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QRectF, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from gt import debuglog, platform_win
 
@@ -23,6 +23,32 @@ PANEL_STROKE = QColor(255, 255, 255, 41)         # 細白邊（≈0.16）
 ACRYLIC_TINT = "14141A4D"                        # 深灰 0.30，疊在模糊上
 EXPAND_MS = 210                                  # 浮層展開 200–220ms
 COLLAPSE_MS = 150                                # 浮層收合 140–160ms
+FIELD_RADIUS = 11                                # 輸入欄位 10–12px
+CTL_H = 32                                       # 同一列控制項等高
+STATUS_MS = 4000                                 # 失敗訊息顯示多久
+
+# 文字翻譯頁的 QSS（README「視覺規格」：半透明底、輸入欄位圓角、按鈕膠囊）
+PAGE_QSS = f"""
+QLabel {{ color: #f2f2f5; background: transparent; }}
+QPlainTextEdit, QLineEdit {{
+    color: #f2f2f5; background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
+    padding: 6px 8px; selection-background-color: rgba(255, 255, 255, 0.30);
+}}
+QPlainTextEdit:focus, QLineEdit:focus {{ border-color: rgba(255, 255, 255, 0.40); }}
+QLineEdit {{ min-height: {CTL_H - 14}px; max-height: {CTL_H - 14}px; }}
+QPushButton {{
+    color: #f2f2f5; background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.20); border-radius: {CTL_H // 2 - 1}px;  /* 膠囊：半徑＝按鈕高的一半 */
+    min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px; padding: 0 16px;
+}}
+QPushButton:hover {{ background: rgba(255, 255, 255, 0.22); }}
+QPushButton:disabled {{ color: rgba(242, 242, 245, 0.45); }}
+QLabel#status {{
+    color: #ffd7d7; background: rgba(120, 20, 20, 0.55);
+    border-radius: {FIELD_RADIUS}px; padding: 6px 10px;
+}}
+"""
 
 
 def bezier(x1, y1, x2, y2):
@@ -89,6 +115,18 @@ class HostWindow(QWidget):
             self.deactivated.emit()
 
 
+class SourceEdit(QPlainTextEdit):
+    """原文輸入框：Enter 送出，Shift+Enter 換行。"""
+
+    submitted = Signal()
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and not e.modifiers() & Qt.ShiftModifier:
+            self.submitted.emit()
+            return
+        super().keyPressEvent(e)
+
+
 class Panel(QWidget):
     """面板：從主螢幕右緣滑出的毛玻璃視窗，內含文字翻譯頁的輸入框。"""
 
@@ -96,8 +134,10 @@ class Panel(QWidget):
     activated = Signal()
     focus_lost = Signal()
     animation_done = Signal()
+    translate_requested = Signal(str)            # 原文
+    api_key_changed = Signal(str)
 
-    def __init__(self, screen):
+    def __init__(self, screen, api_key=""):
         super().__init__(None, TOP_FLAGS)
         self.screen_geo = screen.geometry()
         self.use_acrylic = platform_win.IS_WIN
@@ -113,8 +153,36 @@ class Panel(QWidget):
         title = QLabel("Gamersive-Translate")
         title.setStyleSheet("color: #f2f2f5; font-size: 12pt; font-weight: 600; background: transparent;")
         box.addWidget(title, 0, Qt.AlignTop | Qt.AlignHCenter)
-        self.input = QPlainTextEdit()                   # 文字翻譯頁的輸入框（完整功能屬 #4）
-        box.addWidget(self.input)
+        self.inner.setStyleSheet(PAGE_QSS)
+        langs = QLabel("自動偵測 → 繁體中文")
+        self.input = SourceEdit()                       # 文字翻譯頁上方：原文
+        self.input.setPlaceholderText("輸入原文，Enter 翻譯，Shift+Enter 換行")
+        self.translate_btn = QPushButton("翻譯")
+        row = QHBoxLayout()
+        row.addWidget(langs, 1)
+        row.addWidget(self.translate_btn)
+        self.output = QPlainTextEdit()                  # 文字翻譯頁下方：譯文
+        self.output.setReadOnly(True)
+        self.output.setFocusPolicy(Qt.ClickFocus)
+        self.key_edit = QLineEdit(api_key)              # 最小設定入口：Google API key（完整設定頁屬 #8）
+        self.key_edit.setPlaceholderText("Google API key")
+        self.key_edit.setEchoMode(QLineEdit.Password)
+        self.status = QLabel()                          # 面板底部的短暫失敗訊息
+        self.status.setObjectName("status")
+        self.status.setWordWrap(True)
+        self.status.hide()
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.setInterval(STATUS_MS)
+        self._status_timer.timeout.connect(self.status.hide)
+        box.addWidget(self.input, 1)
+        box.addLayout(row)
+        box.addWidget(self.output, 1)
+        box.addWidget(self.key_edit)
+        box.addWidget(self.status)
+        self.input.submitted.connect(self._submit)
+        self.translate_btn.clicked.connect(self._submit)
+        self.key_edit.editingFinished.connect(lambda: self.api_key_changed.emit(self.key_edit.text().strip()))
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
@@ -138,6 +206,22 @@ class Panel(QWidget):
         self.activateWindow()
         platform_win.bring_to_foreground(int(self.winId()))
         self.input.setFocus()
+
+    def _submit(self):
+        text = self.input.toPlainText().strip()
+        if text and self.translate_btn.isEnabled():     # 翻譯中不重複送出
+            self.translate_btn.setEnabled(False)
+            self.translate_requested.emit(text)
+
+    def show_result(self, result):
+        """翻譯完成（UI 執行緒）：成功顯示譯文，失敗在底部短暫顯示引擎與原因。"""
+        self.translate_btn.setEnabled(True)
+        if result.error is None:
+            self.output.setPlainText(result.text)
+            return
+        self.status.setText(f"{result.engine} 翻譯失敗：{result.error}")
+        self.status.show()
+        self._status_timer.start()
 
     def play_collapse(self):
         self._slide_to(0, COLLAPSE_MS, COLLAPSE_CURVE)

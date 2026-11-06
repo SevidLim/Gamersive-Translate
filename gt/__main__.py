@@ -2,12 +2,14 @@
 
 import signal
 import sys
+import threading
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
 from gt import config, platform_win
 from gt.panel_state import Command, Event, PanelStateMachine, State
+from gt.translate import GoogleTranslator
 from gt.ui import EXPAND_MS, HostWindow, Panel, Strip
 
 HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全展開共 1.5 秒
@@ -16,15 +18,38 @@ ALT_TAB_CLASSES = {"ForegroundStaging", "XamlExplorerHostIslandWindow"}
 HANDOFF_FALLBACK_MS = 1000                      # host 一直沒失去啟用時，最晚在這之後解除抑制
 
 
+class _Relay(QObject):
+    """把背景執行緒的翻譯結果以 queued signal 送回 UI 執行緒。"""
+
+    done = Signal(object)
+
+
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)  # 終端機 Ctrl+C 直接結束程式
-    config.load()                                # 首次啟動建立 config.json 並寫入預設值
+    cfg = config.load()                          # 首次啟動建立 config.json 並寫入預設值
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     screen = app.primaryScreen()
     machine = PanelStateMachine()
     strip = Strip(screen)
-    panel = Panel(screen)
+    panel = Panel(screen, cfg["google_api_key"])
+    relay = _Relay()
+    relay.done.connect(panel.show_result)
+
+    def on_translate(text):
+        translator = GoogleTranslator(cfg["google_api_key"])
+        src, dst = cfg["source_lang"], cfg["target_lang"]
+        # 網路請求在背景執行緒，不卡 UI
+        threading.Thread(target=lambda: relay.done.emit(translator.translate(text, src, dst)),
+                         daemon=True).start()
+
+    def on_api_key(key):
+        if key != cfg["google_api_key"]:
+            cfg["google_api_key"] = key
+            config.save(cfg)
+
+    panel.translate_requested.connect(on_translate)
+    panel.api_key_changed.connect(on_api_key)
     host = HostWindow(screen)
     handoff = {"active": False}                   # host 短暫啟用、交還前景期間為 True
 

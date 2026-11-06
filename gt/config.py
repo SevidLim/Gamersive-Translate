@@ -9,6 +9,9 @@ APP_NAME = "Gamersive-Translate"
 
 DEFAULTS = {
     "config_version": 1,
+    "google_api_key": "",
+    "source_lang": "auto",                      # 自動偵測
+    "target_lang": "zh-TW",                     # 繁體中文
 }
 
 
