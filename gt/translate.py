@@ -7,8 +7,10 @@
 網路請求層 post(url, payload) -> (狀態碼, 回應內容 bytes) 由外部注入，測試以假回應取代。
 """
 
+import http.client
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -52,9 +54,11 @@ class GoogleTranslator:
         if source != AUTO:
             payload["source"] = source
         try:
-            status, body = self.post(f"{self.URL}?key={self.api_key}", payload)
+            status, body = self.post(f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload)
         except OSError as e:                            # 逾時、DNS、連不上
             return Result(self.name, error=f"連線失敗：{e}")
+        except (ValueError, http.client.HTTPException) as e:  # 例如 URL 含控制字元（http.client.InvalidURL）
+            return Result(self.name, error=f"請求失敗：{e}")
         try:
             data = json.loads(body)
             if status != 200:

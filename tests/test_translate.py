@@ -1,5 +1,6 @@
 """翻譯引擎：在網路請求層以假回應取代真實 API，驗證請求內容、譯文解析、失敗回傳。"""
 
+import http.client
 import json
 
 from gt.translate import AUTO, GoogleTranslator
@@ -68,3 +69,18 @@ def test_missing_api_key_fails_without_sending_request():
 def test_unexpected_response_body_returns_reason():
     result = GoogleTranslator("K", FakePost(body=b"<html>oops</html>")).translate("Hello", AUTO, "zh-TW")
     assert (result.engine, result.error) == ("Google", "回應格式無法解析")
+
+
+def test_api_key_with_special_characters_is_url_encoded():
+    post = FakePost(body=ok_body("你好"))
+    GoogleTranslator("a b&c/金鑰", post).translate("Hello", AUTO, "zh-TW")
+    url, _ = post.calls[0]
+    assert url.endswith("?key=a+b%26c%2F%E9%87%91%E9%91%B0")
+
+
+def test_invalid_request_returns_reason_instead_of_raising():
+    post = FakePost(error=http.client.InvalidURL("URL can't contain control characters"))
+    r = GoogleTranslator("KEY", post).translate("Hello", AUTO, "zh-TW")
+    assert r.engine == "Google"
+    assert r.text is None
+    assert r.error.startswith("請求失敗：")
