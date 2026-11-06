@@ -7,7 +7,7 @@
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
 from gt import debuglog, platform_win
 
@@ -66,10 +66,34 @@ class Strip(QWidget):
         p.drawRoundedRect(QRectF(self.rect()), STRIP_W / 2, STRIP_W / 2)
 
 
+class HostWindow(QWidget):
+    """供 Alt+Tab 選取的主視窗：非 Tool、可見，放在所有螢幕範圍之外，使用者看不到。
+    邊條與面板是 Tool 視窗，不會列入 Alt+Tab 清單。
+    面板取得前景後隱藏 host（隱藏的視窗不列入 Alt+Tab 清單），面板收合後再以不啟用的方式顯示。"""
+
+    activated = Signal()
+    deactivated = Signal()
+
+    def __init__(self, screen):
+        super().__init__(None)
+        self.setWindowTitle("Gamersive-Translate")
+        v = screen.virtualGeometry()                # 所有螢幕的聯集
+        self.setGeometry(v.x() - 1000, v.y(), 1, 1)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)  # 重新顯示時不搶前景、不觸發 activated
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow():
+            self.activated.emit()
+        if e.type() == QEvent.ActivationChange and not self.isActiveWindow():
+            self.deactivated.emit()
+
+
 class Panel(QWidget):
-    """面板：從主螢幕右緣滑出的毛玻璃視窗（本票內容為空殼）。"""
+    """面板：從主螢幕右緣滑出的毛玻璃視窗，內含文字翻譯頁的輸入框。"""
 
     esc_pressed = Signal()
+    activated = Signal()
     focus_lost = Signal()
     animation_done = Signal()
 
@@ -89,6 +113,8 @@ class Panel(QWidget):
         title = QLabel("Gamersive-Translate")
         title.setStyleSheet("color: #f2f2f5; font-size: 12pt; font-weight: 600; background: transparent;")
         box.addWidget(title, 0, Qt.AlignTop | Qt.AlignHCenter)
+        self.input = QPlainTextEdit()                   # 文字翻譯頁的輸入框（完整功能屬 #4）
+        box.addWidget(self.input)
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
@@ -105,6 +131,13 @@ class Panel(QWidget):
         self.activateWindow()
         platform_win.bring_to_foreground(int(self.winId()))
         self.setFocus()
+
+    def focus_input(self):
+        """把面板帶到前景並讓輸入框取得焦點。"""
+        self.raise_()
+        self.activateWindow()
+        platform_win.bring_to_foreground(int(self.winId()))
+        self.input.setFocus()
 
     def play_collapse(self):
         self._slide_to(0, COLLAPSE_MS, COLLAPSE_CURVE)
@@ -141,6 +174,8 @@ class Panel(QWidget):
 
     def changeEvent(self, e):
         super().changeEvent(e)
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow():
+            self.activated.emit()
         if e.type() == QEvent.ActivationChange and not self.isActiveWindow():
             self.focus_lost.emit()
 

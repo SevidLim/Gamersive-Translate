@@ -120,3 +120,25 @@ class ForegroundWatcher:
         if self.hook:
             user32.UnhookWinEvent(wintypes.HANDLE(self.hook))
             self.hook = None
+
+
+def foreground_window():
+    if not IS_WIN:
+        return 0
+    return int(user32.GetForegroundWindow() or 0)
+
+
+def set_foreground(hwnd):
+    """本程序是前景程序時把前景交給 hwnd，回傳 SetForegroundWindow 的結果。"""
+    if not IS_WIN:
+        return False
+    return bool(user32.SetForegroundWindow(wintypes.HWND(int(hwnd))))
+
+
+def class_name(hwnd):
+    if not IS_WIN:
+        return ""
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(wintypes.HWND(int(hwnd)), buf, 256)
+    return buf.value
+

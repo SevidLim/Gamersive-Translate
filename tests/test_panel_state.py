@@ -11,11 +11,11 @@ def feed(machine, *events):
     return commands
 
 
-def test_hover_on_strip_for_full_delay_starts_expanding():
+def test_hover_on_strip_for_full_delay_starts_expanding_and_focuses_input():
     m = PanelStateMachine()
     commands = feed(m, Event.STRIP_ENTER, Event.HOVER_TIMEOUT)
     assert m.state is State.EXPANDING
-    assert commands == [Command.PLAY_EXPAND]
+    assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
 
 
 def test_leaving_strip_before_delay_does_not_expand():
@@ -77,4 +77,25 @@ def test_hovering_strip_during_collapse_animation_reverses_into_expand():
     m = expanded_machine()
     commands = feed(m, Event.FOCUS_LOST, Event.STRIP_ENTER, Event.HOVER_TIMEOUT)
     assert m.state is State.EXPANDING
-    assert commands == [Command.PLAY_EXPAND]
+    assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
+
+
+def test_switching_to_app_while_collapsed_expands_and_focuses_input():
+    m = PanelStateMachine()
+    commands = feed(m, Event.APP_ACTIVATED)
+    assert m.state is State.EXPANDING
+    assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
+
+
+def test_switching_away_after_app_activation_collapses():
+    m = PanelStateMachine()
+    commands = feed(m, Event.APP_ACTIVATED, Event.ANIMATION_DONE, Event.FOCUS_LOST)
+    assert m.state is State.COLLAPSING
+    assert commands == [Command.PLAY_COLLAPSE]
+
+
+def test_switching_to_app_while_expanded_only_refocuses_input():
+    m = expanded_machine()
+    commands = feed(m, Event.APP_ACTIVATED)
+    assert m.state is State.EXPANDED
+    assert commands == [Command.FOCUS_INPUT]
