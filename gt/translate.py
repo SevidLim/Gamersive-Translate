@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, NamedTuple
 
 AUTO = "auto"
 LANG_NAMES = {"zh-TW": "繁體中文"}                 # 語言代碼 → 語言名稱
@@ -77,6 +77,11 @@ def _missing_model(name, model):
     return None
 
 
+def _join_url(base, path):
+    """LLM 引擎共用的 URL 組合：去掉 base 結尾的 /，再接上 path。"""
+    return f"{base.rstrip('/')}{path}"
+
+
 def _request(name, post, url, payload, headers, read_text, read_error):
     """送出請求並解析；所有引擎共用的錯誤處理。"""
     try:
@@ -112,7 +117,7 @@ class OpenAICompatibleTranslator:
         if missing := _missing_model(self.name, self.model):
             return missing
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        return _request(self.name, self.post, f"{self.base_url.rstrip('/')}/chat/completions",
+        return _request(self.name, self.post, _join_url(self.base_url, "/chat/completions"),
                         {"model": self.model, "messages": _messages(text, target)}, headers,
                         lambda d: d["choices"][0]["message"]["content"], _error_message)
 
@@ -131,28 +136,34 @@ class OllamaTranslator:
             return Result(self.name, error="未設定端點")
         if missing := _missing_model(self.name, self.model):
             return missing
-        return _request(self.name, self.post, f"{self.endpoint.rstrip('/')}/api/chat",
+        return _request(self.name, self.post, _join_url(self.endpoint, "/api/chat"),
                         {"model": self.model, "messages": _messages(text, target), "stream": False}, None,
                         lambda d: d["message"]["content"], lambda d: d["error"])
+
+
+class Field(NamedTuple):
+    config_key: str                                     # config 欄位
+    placeholder: str                                    # 輸入框提示文字
+    secret: bool                                        # 是否遮罩
 
 
 @dataclass
 class Engine:
     name: str                                           # 顯示名稱，取自引擎類別的 name
-    fields: list                                        # 設定欄位：(config 欄位, placeholder, 是否遮罩)
+    fields: list                                        # 設定欄位：Field 串列
     build: Callable                                     # cfg -> 翻譯引擎
 
 
 # 引擎表：key 為 cfg["engine"] 的值
 ENGINES = {
-    "google": Engine(GoogleTranslator.name, [("google_api_key", "Google API key", True)],
+    "google": Engine(GoogleTranslator.name, [Field("google_api_key", "Google API key", True)],
                      lambda cfg: GoogleTranslator(cfg["google_api_key"], http_post)),
     "openai": Engine(OpenAICompatibleTranslator.name,
-                     [("openai_base_url", "base URL", False), ("openai_api_key", "API key", True),
-                      ("openai_model", "model", False)],
+                     [Field("openai_base_url", "base URL", False), Field("openai_api_key", "API key", True),
+                      Field("openai_model", "model", False)],
                      lambda cfg: OpenAICompatibleTranslator(cfg["openai_base_url"], cfg["openai_api_key"],
                                                             cfg["openai_model"], http_post)),
-    "ollama": Engine(OllamaTranslator.name, [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)],
+    "ollama": Engine(OllamaTranslator.name, [Field("ollama_endpoint", "endpoint", False), Field("ollama_model", "model", False)],
                      lambda cfg: OllamaTranslator(cfg["ollama_endpoint"], cfg["ollama_model"], http_post)),
 }
 

@@ -182,12 +182,12 @@ class Panel(QWidget):
             w = QWidget()
             col = QVBoxLayout(w)
             col.setContentsMargins(0, 0, 0, 0)
-            for field, hint, secret in engine.fields:
-                edit = QLineEdit(cfg[field])
-                edit.setPlaceholderText(hint)
-                if secret:
+            for field in engine.fields:
+                edit = QLineEdit(cfg[field.config_key])
+                edit.setPlaceholderText(field.placeholder)
+                if field.secret:
                     edit.setEchoMode(QLineEdit.Password)
-                edit.editingFinished.connect(lambda f=field, e=edit: self.setting_changed.emit(f, e.text().strip()))
+                edit.editingFinished.connect(lambda f=field.config_key, e=edit: self.setting_changed.emit(f, e.text().strip()))
                 col.addWidget(edit)
             self.engine_rows[key] = w
             settings.addWidget(w)

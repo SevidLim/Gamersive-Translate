@@ -3,7 +3,7 @@
 import http.client
 import json
 
-from gt.translate import AUTO, ENGINES, GoogleTranslator, OllamaTranslator, OpenAICompatibleTranslator, make_translator
+from gt.translate import AUTO, ENGINES, Field, GoogleTranslator, OllamaTranslator, OpenAICompatibleTranslator, make_translator
 
 
 class FakePost:
@@ -158,7 +158,8 @@ def test_ollama_parses_translation():
 def test_ollama_failures():
     t = lambda post: OllamaTranslator("http://h:11434", "m", post).translate("Hi", AUTO, "zh-TW")
     body = json.dumps({"error": "model 'm' not found"}).encode()
-    assert (t(FakePost(status=404, body=body)).engine, t(FakePost(status=404, body=body)).error) == ("Ollama", "HTTP 404：model 'm' not found")
+    r = t(FakePost(status=404, body=body))
+    assert (r.engine, r.error) == ("Ollama", "HTTP 404：model 'm' not found")
     assert t(FakePost(error=OSError("refused"))).error == "連線失敗：refused"
     assert t(FakePost(body=b"{}")).error == "回應格式無法解析"
 
@@ -192,4 +193,4 @@ def test_make_translator_uses_selected_engine(monkeypatch):
 
 def test_engine_table_lists_engines_and_fields():
     assert [(k, e.name) for k, e in ENGINES.items()] == [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
-    assert ENGINES["ollama"].fields == [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)]
+    assert ENGINES["ollama"].fields == [Field("ollama_endpoint", "endpoint", False), Field("ollama_model", "model", False)]
