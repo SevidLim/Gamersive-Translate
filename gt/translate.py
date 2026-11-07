@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 AUTO = "auto"
+LANG_NAMES = {"zh-TW": "繁體中文"}                 # 語言代碼 → 語言名稱
 TIMEOUT_S = 10
 
 
@@ -54,17 +55,29 @@ class GoogleTranslator:
         payload = {"q": text, "target": target, "format": "text"}
         if source != AUTO:
             payload["source"] = source
-        return _chat(self.name, self.post, f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload, None,
-                     lambda d: d["data"]["translations"][0]["translatedText"], lambda d: d["error"]["message"])
+        return _request(self.name, self.post, f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload, None,
+                        lambda d: d["data"]["translations"][0]["translatedText"], _error_message)
 
 
-def _messages(text, source, target):
+def _messages(text, target):
     """LLM 引擎共用的提示：system 指示翻譯方向，user 為原文。"""
     return [{"role": "system", "content": f"把使用者的文字翻成 {target}，只輸出譯文。"},
             {"role": "user", "content": text}]
 
 
-def _chat(name, post, url, payload, headers, read_text, read_error):
+def _error_message(d):
+    """Google 與 OpenAI 相容共用的錯誤格式：{"error": {"message": "..."}}。"""
+    return d["error"]["message"]
+
+
+def _missing_model(name, model):
+    """LLM 引擎共用的模型檢查：未設定時回傳失敗 Result，否則 None。"""
+    if not model:
+        return Result(name, error="未設定模型")
+    return None
+
+
+def _request(name, post, url, payload, headers, read_text, read_error):
     """送出請求並解析；所有引擎共用的錯誤處理。"""
     try:
         status, body = post(url, payload, headers)
@@ -96,12 +109,12 @@ class OpenAICompatibleTranslator:
         self.base_url, self.api_key, self.model, self.post = base_url, api_key, model, post
 
     def translate(self, text, source, target):
-        if not self.model:
-            return Result(self.name, error="未設定模型")
+        if missing := _missing_model(self.name, self.model):
+            return missing
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        return _chat(self.name, self.post, f"{self.base_url.rstrip('/')}/chat/completions",
-                     {"model": self.model, "messages": _messages(text, source, target)}, headers,
-                     lambda d: d["choices"][0]["message"]["content"], lambda d: d["error"]["message"])
+        return _request(self.name, self.post, f"{self.base_url.rstrip('/')}/chat/completions",
+                        {"model": self.model, "messages": _messages(text, target)}, headers,
+                        lambda d: d["choices"][0]["message"]["content"], _error_message)
 
 
 class OllamaTranslator:
@@ -116,30 +129,30 @@ class OllamaTranslator:
     def translate(self, text, source, target):
         if not self.endpoint:
             return Result(self.name, error="未設定端點")
-        if not self.model:
-            return Result(self.name, error="未設定模型")
-        return _chat(self.name, self.post, f"{self.endpoint.rstrip('/')}/api/chat",
-                     {"model": self.model, "messages": _messages(text, source, target), "stream": False}, None,
-                     lambda d: d["message"]["content"], lambda d: d["error"])
+        if missing := _missing_model(self.name, self.model):
+            return missing
+        return _request(self.name, self.post, f"{self.endpoint.rstrip('/')}/api/chat",
+                        {"model": self.model, "messages": _messages(text, target), "stream": False}, None,
+                        lambda d: d["message"]["content"], lambda d: d["error"])
 
 
 @dataclass
 class Engine:
-    cls: type                                           # 引擎類別，顯示名稱為 cls.name
+    name: str                                           # 顯示名稱，取自引擎類別的 name
     fields: list                                        # 設定欄位：(config 欄位, placeholder, 是否遮罩)
     build: Callable                                     # cfg -> 翻譯引擎
 
 
 # 引擎表：key 為 cfg["engine"] 的值
 ENGINES = {
-    "google": Engine(GoogleTranslator, [("google_api_key", "Google API key", True)],
+    "google": Engine(GoogleTranslator.name, [("google_api_key", "Google API key", True)],
                      lambda cfg: GoogleTranslator(cfg["google_api_key"], http_post)),
-    "openai": Engine(OpenAICompatibleTranslator,
+    "openai": Engine(OpenAICompatibleTranslator.name,
                      [("openai_base_url", "base URL", False), ("openai_api_key", "API key", True),
                       ("openai_model", "model", False)],
                      lambda cfg: OpenAICompatibleTranslator(cfg["openai_base_url"], cfg["openai_api_key"],
                                                             cfg["openai_model"], http_post)),
-    "ollama": Engine(OllamaTranslator, [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)],
+    "ollama": Engine(OllamaTranslator.name, [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)],
                      lambda cfg: OllamaTranslator(cfg["ollama_endpoint"], cfg["ollama_model"], http_post)),
 }
 

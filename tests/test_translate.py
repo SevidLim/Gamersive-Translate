@@ -14,8 +14,7 @@ class FakePost:
         self.calls = []
 
     def __call__(self, url, payload, headers=None):
-        self.calls.append((url, payload))
-        self.headers = headers
+        self.calls.append((url, payload, headers))
         if self.error:
             raise self.error
         return self.status, self.body
@@ -29,7 +28,7 @@ def ok_body(text, detected="en"):
 def test_auto_detect_request_omits_source_and_targets_language():
     post = FakePost(body=ok_body("你好"))
     GoogleTranslator("KEY123", post).translate("Hello", AUTO, "zh-TW")
-    url, payload = post.calls[0]
+    url, payload, _ = post.calls[0]
     assert url == "https://translation.googleapis.com/language/translate/v2?key=KEY123"
     assert payload == {"q": "Hello", "target": "zh-TW", "format": "text"}
 
@@ -75,7 +74,7 @@ def test_unexpected_response_body_returns_reason():
 def test_api_key_with_special_characters_is_url_encoded():
     post = FakePost(body=ok_body("你好"))
     GoogleTranslator("a b&c/金鑰", post).translate("Hello", AUTO, "zh-TW")
-    url, _ = post.calls[0]
+    url, _, _ = post.calls[0]
     assert url.endswith("?key=a+b%26c%2F%E9%87%91%E9%91%B0")
 
 
@@ -98,9 +97,9 @@ def ollama_body(text):
 def test_openai_request_content():
     post = FakePost(body=openai_body("你好"))
     OpenAICompatibleTranslator("https://api.example.com/v1/", "SK", "gpt-x", post).translate("Hello", AUTO, "zh-TW")
-    url, payload = post.calls[0]
+    url, payload, headers = post.calls[0]
     assert url == "https://api.example.com/v1/chat/completions"
-    assert post.headers == {"Authorization": "Bearer SK"}
+    assert headers == {"Authorization": "Bearer SK"}
     assert payload == {"model": "gpt-x", "messages": [
         {"role": "system", "content": "把使用者的文字翻成 zh-TW，只輸出譯文。"},
         {"role": "user", "content": "Hello"}]}
@@ -109,7 +108,7 @@ def test_openai_request_content():
 def test_openai_no_key_sends_empty_bearer():
     post = FakePost(body=openai_body("你好"))
     OpenAICompatibleTranslator("http://h/v1", "", "m", post).translate("Hola", "es", "zh-TW")
-    assert post.headers == {"Authorization": "Bearer "}
+    assert post.calls[0][2] == {"Authorization": "Bearer "}
 
 
 def test_openai_parses_translation():
@@ -144,7 +143,7 @@ def test_openai_missing_model_sends_nothing():
 def test_ollama_request_content():
     post = FakePost(body=ollama_body("你好"))
     OllamaTranslator("http://localhost:11434/", "llama3", post).translate("Hello", AUTO, "zh-TW")
-    url, payload = post.calls[0]
+    url, payload, _ = post.calls[0]
     assert url == "http://localhost:11434/api/chat"
     assert payload == {"model": "llama3", "stream": False, "messages": [
         {"role": "system", "content": "把使用者的文字翻成 zh-TW，只輸出譯文。"},
@@ -192,5 +191,5 @@ def test_make_translator_uses_selected_engine(monkeypatch):
 
 
 def test_engine_table_lists_engines_and_fields():
-    assert [(k, e.cls.name) for k, e in ENGINES.items()] == [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
+    assert [(k, e.name) for k, e in ENGINES.items()] == [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
     assert ENGINES["ollama"].fields == [("ollama_endpoint", "endpoint", False), ("ollama_model", "model", False)]

@@ -26,6 +26,7 @@ EXPAND_MS = 210                                  # 浮層展開 200–220ms
 COLLAPSE_MS = 150                                # 浮層收合 140–160ms
 FIELD_RADIUS = 11                                # 輸入欄位 10–12px
 CTL_H = 32                                       # 同一列控制項等高
+FIELD_PAD_X = 8                                  # 輸入欄位與下拉框左右內距
 STATUS_MS = 4000                                 # 失敗訊息顯示多久
 
 # 文字翻譯頁的 QSS（README「視覺規格」：半透明底、輸入欄位圓角、按鈕膠囊）
@@ -34,16 +35,16 @@ QLabel {{ color: #f2f2f5; background: transparent; }}
 QPlainTextEdit, QLineEdit {{
     color: #f2f2f5; background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
-    padding: 6px 8px; selection-background-color: rgba(255, 255, 255, 0.30);
+    padding: 6px {FIELD_PAD_X}px; selection-background-color: rgba(255, 255, 255, 0.30);
 }}
 QPlainTextEdit:focus, QLineEdit:focus {{ border-color: rgba(255, 255, 255, 0.40); }}
 QLineEdit {{ min-height: {CTL_H - 14}px; max-height: {CTL_H - 14}px; }}
 QComboBox {{
     color: #f2f2f5; background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
-    padding: 0 8px; min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px;
+    padding: 0 {FIELD_PAD_X}px; min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px;
 }}
-QComboBox QAbstractItemView {{ color: #f2f2f5; background: rgb(32, 32, 40); }}
+QComboBox QAbstractItemView {{ color: #f2f2f5; background: rgba(32, 32, 40, 0.80); }}
 QPushButton {{
     color: #f2f2f5; background: rgba(255, 255, 255, 0.14);
     border: 1px solid rgba(255, 255, 255, 0.20); border-radius: {CTL_H // 2 - 1}px;  /* 膠囊：半徑＝按鈕高的一半 */
@@ -173,7 +174,7 @@ class Panel(QWidget):
         self.output.setFocusPolicy(Qt.ClickFocus)
         self.engine_box = QComboBox()                   # 最小設定入口：引擎與其欄位（完整設定頁屬 #8）
         for key, engine in ENGINES.items():
-            self.engine_box.addItem(engine.cls.name, key)
+            self.engine_box.addItem(engine.name, key)
         self.engine_rows = {}
         settings = QVBoxLayout()
         settings.addWidget(self.engine_box)
