@@ -5,9 +5,10 @@
 側滑也照 glass.py：視窗寬度從 0 變到全寬，內容固定全寬、靠左貼齊，看起來是滑出來。
 """
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 from gt import debuglog, platform_win
 from gt.translate import ENGINES
@@ -28,6 +29,10 @@ FIELD_RADIUS = 11                                # 輸入欄位 10–12px
 CTL_H = 32                                       # 同一列控制項等高
 FIELD_PAD_X = 8                                  # 輸入欄位與下拉框左右內距
 STATUS_MS = 4000                                 # 失敗訊息顯示多久
+CELL_SIZE = CTL_H                                # 九宮格面板每格邊長
+POPUP_BG = QColor(32, 32, 40, 204)               # 深色浮層固定深灰 0.80，與下拉清單選項清單相同
+GRID_LINE = QColor(255, 255, 255, 51)            # 九宮格外框與格線（≈0.20）
+CELL_SELECTED = QColor(255, 255, 255, 87)        # 選取格的較亮半透明底（≈0.34）
 
 # 文字翻譯頁的 QSS（README「視覺規格」：半透明底、輸入欄位圓角、按鈕膠囊）
 PAGE_QSS = f"""
@@ -51,6 +56,7 @@ QPushButton {{
     min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px; padding: 0 16px;
 }}
 QPushButton:hover {{ background: rgba(255, 255, 255, 0.22); }}
+QPushButton:checked {{ background: rgba(255, 255, 255, 0.34); border-color: rgba(255, 255, 255, 0.50); }}  /* 切換鈕選取狀態 */
 QPushButton:disabled {{ color: rgba(242, 242, 245, 0.45); }}
 QLabel#status {{
     color: #ffd7d7; background: rgba(120, 20, 20, 0.55);
@@ -135,6 +141,42 @@ class SourceEdit(QPlainTextEdit):
         super().keyPressEvent(e)
 
 
+class GridPopup(QWidget):
+    """九宮格浮出面板：Qt.Popup，點面板外自動收合；3x3 相連方格，點一格切換選取。"""
+
+    def __init__(self, parent):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(3 * CELL_SIZE + 1, 3 * CELL_SIZE + 1)
+        self.cells = set()                              # 選取的格號 1–9，左上到右下
+        self.closed_by_button = False                   # 這次收合是點九宮格按鈕造成的
+
+    def clear(self):
+        self.cells.clear()
+        self.update()
+
+    def mousePressEvent(self, e):
+        if not self.rect().contains(e.position().toPoint()):
+            button = self.parentWidget()
+            self.closed_by_button = button.rect().contains(button.mapFromGlobal(e.globalPosition().toPoint()))
+            super().mousePressEvent(e)                  # 點到面板外：交給 QWidget 預設處理，收合 popup
+            return
+        col, row = int(e.position().x()) // CELL_SIZE, int(e.position().y()) // CELL_SIZE
+        if 0 <= col < 3 and 0 <= row < 3:
+            self.cells ^= {row * 3 + col + 1}
+            self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.fillRect(self.rect(), POPUP_BG)
+        for n in self.cells:
+            p.fillRect((n - 1) % 3 * CELL_SIZE, (n - 1) // 3 * CELL_SIZE, CELL_SIZE, CELL_SIZE, CELL_SELECTED)
+        p.setPen(QPen(GRID_LINE, 1))
+        for i in range(4):                              # 外框與格線相連
+            p.drawLine(i * CELL_SIZE, 0, i * CELL_SIZE, 3 * CELL_SIZE)
+            p.drawLine(0, i * CELL_SIZE, 3 * CELL_SIZE, i * CELL_SIZE)
+
+
 class Panel(QWidget):
     """面板：從主螢幕右緣滑出的毛玻璃視窗，內含文字翻譯頁的輸入框。"""
 
@@ -142,7 +184,8 @@ class Panel(QWidget):
     activated = Signal()
     focus_lost = Signal()
     animation_done = Signal()
-    translate_requested = Signal(str)            # 原文
+    translate_requested = Signal(str, bool)      # 原文、是否一行一個文字區塊（OCR 頁）
+    capture_requested = Signal(str, object)      # 截圖區域、九宮格格號集合
     setting_changed = Signal(str, str)           # config 欄位名、值
 
     def __init__(self, screen, cfg):
@@ -162,6 +205,17 @@ class Panel(QWidget):
         title.setStyleSheet("color: #f2f2f5; font-size: 12pt; font-weight: 600; background: transparent;")
         box.addWidget(title, 0, Qt.AlignTop | Qt.AlignHCenter)
         self.inner.setStyleSheet(PAGE_QSS)
+        self.tabs = [QPushButton("文字翻譯"), QPushButton("OCR")]
+        tab_row = QHBoxLayout()
+        for i, b in enumerate(self.tabs):
+            b.setCheckable(True)
+            b.clicked.connect(lambda _=False, i=i: self._select_tab(i))
+            tab_row.addWidget(b)
+        tab_row.addStretch(1)
+        self.stack = QStackedWidget()
+        text_page = QWidget()
+        text_box = QVBoxLayout(text_page)
+        text_box.setContentsMargins(0, 0, 0, 0)
         langs = QLabel("自動偵測 → 繁體中文")
         self.input = SourceEdit()                       # 文字翻譯頁上方：原文
         self.input.setPlaceholderText("輸入原文，Enter 翻譯，Shift+Enter 換行")
@@ -172,6 +226,12 @@ class Panel(QWidget):
         self.output = QPlainTextEdit()                  # 文字翻譯頁下方：譯文
         self.output.setReadOnly(True)
         self.output.setFocusPolicy(Qt.ClickFocus)
+        text_box.addWidget(self.input, 1)
+        text_box.addLayout(row)
+        text_box.addWidget(self.output, 1)
+        self.stack.addWidget(text_page)
+        self.stack.addWidget(self._build_ocr_page())
+        self._select_tab(0)
         self.engine_box = QComboBox()                   # 最小設定入口：引擎與其欄位（完整設定頁屬 #8）
         for key, engine in ENGINES.items():
             self.engine_box.addItem(engine.name, key)
@@ -202,19 +262,104 @@ class Panel(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.setInterval(STATUS_MS)
         self._status_timer.timeout.connect(self.status.hide)
-        box.addWidget(self.input, 1)
-        box.addLayout(row)
-        box.addWidget(self.output, 1)
+        box.addLayout(tab_row)
+        box.addWidget(self.stack, 1)
         box.addLayout(settings)
         box.addWidget(self.status)
-        self.input.submitted.connect(self._submit)
-        self.translate_btn.clicked.connect(self._submit)
+        self.input.submitted.connect(lambda: self._submit(self.input, self.output, False))
+        self.translate_btn.clicked.connect(lambda: self._submit(self.input, self.output, False))
+        self.ocr_input.submitted.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
+        self.ocr_translate_btn.clicked.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
+        self.capture_btn.clicked.connect(self._capture)
+        self._target_output = self.output                # 翻譯結果要顯示的譯文框
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
         self._anim.valueChanged.connect(self._step)
         self._anim.finished.connect(self.animation_done)
         self._ensure_acrylic()                          # 啟動時先套 Acrylic，第一次展開不再等待
+
+    def _build_ocr_page(self):
+        """OCR 頁：截圖區域選擇列、截圖按鈕；上方原文（可修改後重新翻譯），下方譯文。"""
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(0, 0, 0, 0)
+        region_row = QHBoxLayout()
+        self.region_box = QComboBox()                   # 截圖區域，預設全畫面
+        for key, label in (("full", "全畫面"), ("top", "上半部"), ("bottom", "下半部")):
+            self.region_box.addItem(label, key)
+        self.region_box.activated.connect(lambda _: self._select_region())
+        self.grid_btn = QPushButton("九宮格")
+        self.grid_popup = GridPopup(self.grid_btn)
+        self.grid_btn.clicked.connect(self._open_grid)
+        self.capture_btn = QPushButton("截圖")
+        region_row.addWidget(self.region_box)
+        region_row.addWidget(self.grid_btn)
+        region_row.addWidget(self.capture_btn)
+        region_row.addStretch(1)
+        self.ocr_input = SourceEdit()                   # OCR 頁上方：辨識出的原文
+        self.ocr_input.setPlaceholderText("截圖後顯示辨識出的原文，可修改後 Enter 重新翻譯")
+        self.ocr_translate_btn = QPushButton("翻譯")
+        row = QHBoxLayout()
+        row.addWidget(QLabel("自動偵測 → 繁體中文"), 1)
+        row.addWidget(self.ocr_translate_btn)
+        self.ocr_output = QPlainTextEdit()              # OCR 頁下方：譯文
+        self.ocr_output.setReadOnly(True)
+        self.ocr_output.setFocusPolicy(Qt.ClickFocus)
+        col.addLayout(region_row)
+        col.addWidget(self.ocr_input, 1)
+        col.addLayout(row)
+        col.addWidget(self.ocr_output, 1)
+        return page
+
+    def _select_tab(self, i):
+        self.stack.setCurrentIndex(i)
+        for j, b in enumerate(self.tabs):
+            b.setChecked(j == i)
+
+    def _select_region(self):
+        """從下拉清單選區域：清空九宮格選取。"""
+        self.grid_popup.clear()
+
+    def _open_grid(self):
+        """在九宮格按鈕右側展開九宮格面板；這次點擊剛把面板收合時不再展開。"""
+        if self.grid_popup.closed_by_button:
+            self.grid_popup.closed_by_button = False
+            return
+        self.grid_popup.move(self.grid_btn.mapToGlobal(QPoint(self.grid_btn.width(), 0)))
+        self.grid_popup.show()
+
+    def _capture(self):
+        self.capture_btn.setEnabled(False)              # 截圖與辨識完成前不重複送出
+        # 有選格子時用九宮格，全部未選時用下拉清單的區域（capture.crop_box 以 cells 優先）
+        self.capture_requested.emit(self.region_box.currentData(), set(self.grid_popup.cells))
+
+    def hide_now(self):
+        """截圖前立即隱藏面板（不播動畫），面板狀態機狀態不變。"""
+        self._anim.stop()
+        self.hide()
+
+    def show_now(self):
+        """截圖後立即顯示面板並取回前景。"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        platform_win.bring_to_foreground(int(self.winId()))
+
+    def show_ocr_result(self, blocks):
+        """辨識完成（UI 執行緒）：文字區塊以換行串成原文，自動翻譯。"""
+        self.capture_btn.setEnabled(True)
+        self.ocr_input.setPlainText("\n".join(blocks))
+        self._submit(self.ocr_input, self.ocr_output, True)
+
+    def show_ocr_error(self, reason):
+        self.capture_btn.setEnabled(True)
+        self._show_status(f"OCR 失敗：{reason}")
+
+    def _show_status(self, text):
+        self.status.setText(text)
+        self.status.show()
+        self._status_timer.start()
 
     def _show_engine_fields(self):
         current = self.engine_box.currentData()
@@ -236,27 +381,29 @@ class Panel(QWidget):
         self.setFocus()
 
     def focus_input(self):
-        """把面板帶到前景並讓輸入框取得焦點。"""
+        """把面板帶到前景並讓文字翻譯頁的輸入框取得焦點。"""
+        self._select_tab(0)
         self.raise_()
         self.activateWindow()
         platform_win.bring_to_foreground(int(self.winId()))
         self.input.setFocus()
 
-    def _submit(self):
-        text = self.input.toPlainText().strip()
-        if text and self.translate_btn.isEnabled():     # 翻譯中不重複送出
+    def _submit(self, edit, output, by_line):
+        text = edit.toPlainText().strip()
+        if text and self.translate_btn.isEnabled():     # 翻譯中不重複送出（兩頁一次只翻一筆）
             self.translate_btn.setEnabled(False)
-            self.translate_requested.emit(text)
+            self.ocr_translate_btn.setEnabled(False)
+            self._target_output = output
+            self.translate_requested.emit(text, by_line)
 
     def show_result(self, result):
         """翻譯完成（UI 執行緒）：成功顯示譯文，失敗在底部短暫顯示引擎與原因。"""
         self.translate_btn.setEnabled(True)
+        self.ocr_translate_btn.setEnabled(True)
         if result.error is None:
-            self.output.setPlainText(result.text)
+            self._target_output.setPlainText(result.text)
             return
-        self.status.setText(f"{result.engine} 翻譯失敗：{result.error}")
-        self.status.show()
-        self._status_timer.start()
+        self._show_status(f"{result.engine} 翻譯失敗：{result.error}")
 
     def play_collapse(self):
         self._slide_to(0, COLLAPSE_MS, COLLAPSE_CURVE)

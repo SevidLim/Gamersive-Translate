@@ -39,6 +39,14 @@ def test_explicit_source_language_is_sent():
     assert post.calls[0][1]["source"] == "es"
 
 
+def test_by_line_sends_each_line_as_q_and_joins_translations():
+    body = json.dumps({"data": {"translations": [{"translatedText": "日誌"}, {"translatedText": "閱讀指令"}]}}).encode()
+    post = FakePost(body=body)
+    r = GoogleTranslator("K", post).translate("Journal\n\nRead directive\n", AUTO, "zh-TW", by_line=True)
+    assert post.calls[0][1] == {"q": ["Journal", "Read directive"], "target": "zh-TW", "format": "text"}
+    assert (r.text, r.error) == ("日誌\n閱讀指令", None)
+
+
 def test_successful_response_returns_translated_text():
     result = GoogleTranslator("K", FakePost(body=ok_body("你好，世界"))).translate("Hello, world", AUTO, "zh-TW")
     assert result.text == "你好，世界"

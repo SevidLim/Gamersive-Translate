@@ -7,7 +7,7 @@ import threading
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
-from gt import config, platform_win, translate
+from gt import capture, config, ocr, platform_win, translate
 from gt.panel_state import Command, Event, PanelStateMachine, State
 from gt.ui import EXPAND_MS, HostWindow, Panel, Strip
 
@@ -15,12 +15,15 @@ HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全
 # 按下 Alt+Tab 期間 explorer 暫時接手前景的視窗 class（實測，無官方文件）
 ALT_TAB_CLASSES = {"ForegroundStaging", "XamlExplorerHostIslandWindow"}
 HANDOFF_FALLBACK_MS = 1000                      # host 一直沒失去啟用時，最晚在這之後解除抑制
+CAPTURE_SETTLE_MS = 60                          # 面板隱藏後等桌面重繪，截圖才不含面板
+CAPTURE_GUARD_MS = 500                          # 面板顯示回來後，遲到的失去啟用與前景事件仍不觸發收合
 
 
 class _Relay(QObject):
-    """把背景執行緒的翻譯結果以 queued signal 送回 UI 執行緒。"""
+    """把背景執行緒的翻譯與辨識結果以 queued signal 送回 UI 執行緒。"""
 
     done = Signal(object)
+    ocr_done = Signal(object)                    # 文字區塊清單，或辨識失敗的例外
 
 
 def main():
@@ -35,11 +38,13 @@ def main():
     relay = _Relay()
     relay.done.connect(panel.show_result)
 
-    def on_translate(text):
+    def on_translate(text, by_line):
         translator = translate.make_translator(cfg)
         src, dst = cfg["source_lang"], cfg["target_lang"]
+        # 只有 Google 支援一行一個 q；其他引擎照舊整段送出
+        kwargs = {"by_line": True} if by_line and isinstance(translator, translate.GoogleTranslator) else {}
         # 網路請求在背景執行緒，不卡 UI
-        threading.Thread(target=lambda: relay.done.emit(translator.translate(text, src, dst)),
+        threading.Thread(target=lambda: relay.done.emit(translator.translate(text, src, dst, **kwargs)),
                          daemon=True).start()
 
     def on_setting(field, value):
@@ -47,8 +52,45 @@ def main():
             cfg[field] = value
             config.save(cfg)
 
+    ocr_engine = ocr.RapidOCREngine()
+    capturing = {"active": False}                 # 截圖時面板隱藏、顯示回來期間為 True
+
+    def end_capture():
+        capturing["active"] = False
+
+    def on_capture(region, cells):
+        capturing["active"] = True
+        panel.hide_now()
+        QTimer.singleShot(CAPTURE_SETTLE_MS, lambda: do_capture(region, cells))
+
+    def do_capture(region, cells):
+        try:
+            image, error = capture.grab(region, cells), None
+        except Exception as e:
+            image, error = None, e
+        panel.show_now()
+        QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+        if error is not None:
+            panel.show_ocr_error(str(error) or type(error).__name__)
+            return
+
+        def run():
+            try:
+                relay.ocr_done.emit(ocr_engine.recognize(image))
+            except Exception as e:
+                relay.ocr_done.emit(e)
+        threading.Thread(target=run, daemon=True).start()   # 辨識在背景執行緒，不卡 UI
+
+    def on_ocr_done(r):
+        if isinstance(r, Exception):
+            panel.show_ocr_error(str(r) or type(r).__name__)
+        else:
+            panel.show_ocr_result(r)
+
+    relay.ocr_done.connect(on_ocr_done)
     panel.translate_requested.connect(on_translate)
     panel.setting_changed.connect(on_setting)
+    panel.capture_requested.connect(on_capture)
     host = HostWindow(screen)
     handoff = {"active": False}                   # host 短暫啟用、交還前景期間為 True
 
@@ -87,7 +129,7 @@ def main():
     hover.setInterval(HOVER_DELAY_MS)
 
     def send(event):
-        if handoff["active"] and event in (Event.APP_ACTIVATED, Event.FOCUS_LOST):
+        if (handoff["active"] or capturing["active"]) and event in (Event.APP_ACTIVATED, Event.FOCUS_LOST):
             return
         for command in machine.handle(event):
             if command is Command.PLAY_EXPAND:

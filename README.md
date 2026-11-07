@@ -220,6 +220,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 文字翻譯頁 | 面板中輸入原文、顯示譯文的分頁 | |
 | OCR 頁 | 面板中擷取畫面文字並翻譯的分頁 | |
 | 截圖區域 | OCR 擷取的畫面範圍：全畫面、上半部、下半部，或複選的九宮格格子 | |
+| OCR 引擎 | 輸入圖片、輸出依閱讀順序排列的文字區塊的辨識服務，目前實作 RapidOCR | |
+| 文字區塊 | OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊 | |
 | 翻譯引擎（engine） | 把原文翻成譯文的服務，可選 Google、OpenAI 相容或 Ollama | 翻譯器、後端 |
 | Google | 使用 Google Cloud Translation（Basic v2）的翻譯引擎，以 API key 認證 | |
 | OpenAI 相容（OpenAI-compatible） | 使用 OpenAI Chat Completions 格式 API 的翻譯引擎 | |
