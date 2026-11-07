@@ -12,7 +12,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 實作票 | #1 的子 issue：#2 邊條與面板開合、#3 Alt+Tab 展開與焦點、#4 文字翻譯頁 + Google 翻譯、#5 OpenAI 相容與 Ollama 引擎、#6 OCR 頁（RapidOCR）、#7 Surya 主引擎與備用切換、#8 設定：螢幕、動畫、全螢幕提示 |
 | 票的相依 | #3、#4、#8 等 #2；#5、#6 等 #4；#7 等 #6 |
 | 分支 | master；原型在 prototype/ocr-bench |
-| 開發流程 | Matt Pocock 主線 skill（按需讀取，母版在 Claude Agents/Workspace/mattpocock-skills） |
+| 開發流程 | sevid-flow 主線 skill 組 |
 | Issue tracker | GitHub Issues，以 gh CLI 操作 |
 | 規範檔 | AGENTS.md |
 | Domain docs | single-context：根目錄 GLOSSARY.md 與 docs/adr/ |
@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2、#3、#4 done） |
+| 5 | 實作 | doing（#2、#3、#4、#5 done） |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
 
@@ -35,11 +35,20 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 步驟 5 實作規則：
 
-- 依票的相依順序逐張實作，在同一個對話進行。
-- 每張票由一個 sub agent 實作。
-- sub agent 完成後回報，由主對話確認與驗證；有問題修正後再進行下一張票。
+- 全部票在同一個對話進行，依票的相依順序逐張實作。
+- 每張票交給一個 sub agent 實作（sub agent 讀 implement、tdd skill）。
 - sub agent 只寫檔；git 提交由使用者在 Windows 執行。
 - 實作直接在 master 分支進行。
+- 每張票的收尾順序：
+  1. sub agent 回報。
+  2. 主對話讀程式碼、重跑測試，確認與驗證。
+  3. 主對話列出使用者手動測試清單：執行指令、逐步操作、每步預期結果、需貼回的輸出（log、指令輸出、截圖）。
+  4. 使用者測試回報；有問題修正後回到第 2 步。
+  5. 主對話列出提交指令（commit 訊息含 `Closes #<票號>`），使用者執行。
+  6. code-review：Standards 與 Spec 兩個 sub agent 平行執行，比對基準為該票開始前的 commit；主對話核對結果，需修正者修正後回到第 5 步。
+  7. project-update。
+- 對話用量達 60 萬 tokens 時：確認目前用量，判斷能否再完成一張票；不能則執行 project-update，並產出新對話開場指示（要讀的規範與專案檔清單、下一張票號與後續順序、本節步驟 5 實作規則）。
+- 用量來源：使用者每則訊息末尾的 `[usage-band]` 用量行。
 
 ## 開發環境
 
@@ -163,7 +172,17 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 按 Enter 或翻譯按鈕送出，Shift+Enter 換行。
 - 翻譯在背景執行，進行中翻譯按鈕停用。
 - 翻譯失敗時原文保留，面板底部以紅底訊息顯示 4 秒。
-- 面板最下方有 Google API key 欄位（遮罩顯示），按 Enter 或離開欄位時寫入 config.json 的 google_api_key。
+- 面板下方為翻譯引擎下拉選單（Google、OpenAI 相容、Ollama），下拉選單下方只顯示所選引擎的設定欄位；切換時寫入 config.json 的 engine。
+- 設定欄位按 Enter 或離開欄位時寫入 config.json：
+
+| 引擎 | 欄位（placeholder） | config.json 鍵 |
+|---|---|---|
+| Google | Google API key（遮罩） | google_api_key |
+| OpenAI 相容 | base URL、API key（遮罩）、model | openai_base_url、openai_api_key、openai_model |
+| Ollama | endpoint（預設 http://localhost:11434）、model | ollama_endpoint、ollama_model |
+
+- 設定欄位 placeholder 為英文，其他介面文字為中文。
+- 下拉選單的選項清單為不透明深色底。
 - 輸入欄位圓角 11px、半透明底；按鈕膠囊形，圓角半徑為按鈕高度的一半。
 
 ### OCR 頁
@@ -178,11 +197,15 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 引擎 | 接法 |
 |---|---|
 | Google（預設） | Cloud Translation Basic（v2），API key 認證，key 以網址參數傳送並經網址編碼，format=text，不帶來源語言即自動偵測；每月前 50 萬字元免費 |
-| 雲端模型 | OpenAI 相容格式（base URL + key + model），可接 Claude、Gemini、OpenRouter 等 |
-| 本地模型 | Ollama /api/chat |
+| OpenAI 相容 | POST {base URL}/chat/completions，一律帶 Authorization: Bearer {API key}（key 空時送空值），譯文取 choices[0].message.content，錯誤訊息取 error.message；可接 Claude、Gemini、OpenRouter 等 |
+| Ollama | POST {endpoint}/api/chat，stream 為 false，譯文取 message.content，錯誤訊息取 error |
 
-- 第一次啟動預設 Google；設定中可填 key 或改用雲端模型、Ollama。
-- 翻譯失敗時，面板底部顯示短暫訊息，寫明引擎與原因，不自動換引擎重試。
+- 第一次啟動預設 Google（config.json engine "google"）。
+- OpenAI 相容與 Ollama 的提示：system 訊息「把使用者的文字翻成 {目標語言代碼}，只輸出譯文。」，user 訊息為原文。
+- 程式內有語言代碼對照表 zh-TW → 繁體中文；提示使用語言代碼。
+- 未送出請求即失敗的情況：Google 未設定 API key（「未設定 API key」）；OpenAI 相容未設定 model（「未設定模型」）；Ollama 未設定 endpoint（「未設定端點」）、未設定 model（「未設定模型」）。
+- 失敗訊息格式：「{引擎} 翻譯失敗：{原因}」；原因為連線失敗、請求失敗、HTTP {狀態碼}：{伺服器訊息}、HTTP {狀態碼}、回應格式無法解析，或上列未設定訊息。
+- 翻譯失敗時不自動換引擎重試。
 
 ### 第一版不做
 
@@ -197,6 +220,14 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 文字翻譯頁 | 面板中輸入原文、顯示譯文的分頁 | |
 | OCR 頁 | 面板中擷取畫面文字並翻譯的分頁 | |
 | 截圖區域 | OCR 擷取的畫面範圍：全畫面、上半部、下半部，或複選的九宮格格子 | |
+| 翻譯引擎（engine） | 把原文翻成譯文的服務，可選 Google、OpenAI 相容或 Ollama | 翻譯器、後端 |
+| Google | 使用 Google Cloud Translation（Basic v2）的翻譯引擎，以 API key 認證 | |
+| OpenAI 相容（OpenAI-compatible） | 使用 OpenAI Chat Completions 格式 API 的翻譯引擎 | |
+| Ollama | 使用本機 Ollama 服務 /api/chat 的翻譯引擎 | |
+| base URL | OpenAI 相容引擎的 API 根網址，請求送到 {base URL}/chat/completions | |
+| API key（金鑰） | 翻譯引擎用來認證的金鑰；Google 放在網址參數，OpenAI 相容以 Bearer 標頭送出 | token |
+| 模型（model） | OpenAI 相容與 Ollama 引擎用來翻譯的模型名稱 | |
+| 端點（endpoint） | Ollama 的服務網址，預設 http://localhost:11434 | |
 
 ## 原型（prototype/，分支 prototype/ocr-bench）
 
@@ -237,7 +268,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 主線步驟 5 實作：下一張 #5，之後依序 #6、#7、#8。
+- 主線步驟 5 實作：下一張 #6，之後依序 #7、#8。
 
 ## 未決
 
