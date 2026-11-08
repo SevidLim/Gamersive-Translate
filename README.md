@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2、#3、#4、#5 done） |
+| 5 | 實作 | doing（#2、#3、#4、#5、#6 done） |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
 
@@ -60,13 +60,14 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | Python | 3.10.11 |
 | git | 2.49.0.windows.1 |
 | gh CLI | 2.103.3，已登入 SevidLim（keyring，https，scope：gist、read:org、repo、workflow） |
-| 專案虛擬環境 | 專案根目錄 .venv（PySide6 6.12.0、pytest 9.2.0） |
+| 專案虛擬環境 | 專案根目錄 .venv，套件依 requirements.txt：PySide6 6.12.0、pytest 9.2.0、dxcam 0.3.0、rapidocr 3.10.0、onnxruntime 1.23.2、opencv-python-headless 5.0.0.93、numpy 2.2.6 |
 
 執行方式（PowerShell，於專案根目錄）：
 
 | 動作 | 指令 |
 |---|---|
 | 啟動 | .venv\Scripts\python -m gt |
+| 安裝套件 | .venv\Scripts\python -m pip install -r requirements.txt |
 | 測試 | .venv\Scripts\python -m pytest |
 | 結束 | 終端機按 Ctrl+C |
 | 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
@@ -79,7 +80,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 |---|---|
 | GUI 框架 | PySide6，沿用 Desktop-Agent-Pet 的 src/glass.py（Acrylic 毛玻璃、置頂無邊框視窗、側滑動畫） |
 | 視覺語彙 | 半透明毛玻璃與按鍵設計，規格見本文件「視覺規格」，以 QSS 實作 |
-| 截圖 | dxcam（DXGI Desktop Duplication） |
+| 截圖 | dxcam（DXGI Desktop Duplication），擷取主螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
@@ -187,9 +188,16 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ### OCR 頁
 
-- 版面同文字翻譯頁：上方為辨識出的原文（可修改後重新翻譯），下方為譯文。
-- 截圖區域：全畫面、上半部、下半部、九宮格（可複選，截取所選格子的外框矩形）。
-- 截圖辨識完成後自動翻譯。
+- OCR 頁的辨識由 RapidOCR（預設參數 PP-OCRv6 small）執行，第一次辨識時載入模型；Surya 主引擎與備用切換由 #7 實作。
+- 面板上方有「文字翻譯」「OCR」兩個膠囊分頁鈕；面板展開時與 Alt+Tab 切回時切到文字翻譯頁並聚焦輸入框。
+- 截圖選項一行，由左到右：截圖區域下拉清單（全畫面、上半部、下半部，預設全畫面）、「九宮格」按鈕、「截圖」按鈕。
+- 按「九宮格」在按鈕右側展開九宮格浮出面板：3x3 相連方格，點格切換選取，選取格為較亮底；點面板外或再點「九宮格」收合；選取保留。
+- 有選九宮格時截取所選格子的外框矩形；九宮格未選時截取下拉清單的區域；在下拉清單選區域時清空九宮格選取。
+- 按「截圖」：面板立即隱藏，60ms 後截圖，面板立即顯示並取回前景；隱藏與顯示回來後 500ms 內面板不收合。截圖與辨識進行中「截圖」鈕停用。
+- 截圖 2 秒內未取得畫面時重置截圖並顯示「OCR 失敗：截圖逾時」；截圖或辨識失敗以「OCR 失敗：{原因}」紅底訊息顯示 4 秒。
+- 辨識結果一行一個文字區塊，依 RapidOCR 輸出順序以換行串成原文，填入上方原文框並自動翻譯；下方為譯文。
+- 原文可修改，按 Enter 或翻譯鈕重新翻譯，Shift+Enter 換行。
+- 兩頁一次只翻一筆：翻譯進行中兩頁翻譯鈕停用；辨識完成時若有翻譯進行中，該筆回來後自動送出 OCR 翻譯。
 - 畫面上出現任何語言都要自動辨識正確，使用者不手動選語言或換模型。
 
 ### 翻譯引擎
@@ -201,6 +209,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | Ollama | POST {endpoint}/api/chat，stream 為 false，譯文取 message.content，錯誤訊息取 error |
 
 - 第一次啟動預設 Google（config.json engine "google"）。
+- Google 在文字翻譯頁整段送出一個 q；在 OCR 頁每個非空行一個 q，每 128 行送一次請求，譯文依原順序以換行串回，任一次失敗即顯示該次失敗訊息。OpenAI 相容與 Ollama 兩頁都整段送出。
 - OpenAI 相容與 Ollama 的提示：system 訊息「把使用者的文字翻成 {目標語言代碼}，只輸出譯文。」，user 訊息為原文。
 - 程式內有語言代碼對照表 zh-TW → 繁體中文；提示使用語言代碼。
 - 未送出請求即失敗的情況：Google 未設定 API key（「未設定 API key」）；OpenAI 相容未設定 model（「未設定模型」）；Ollama 未設定 endpoint（「未設定端點」）、未設定 model（「未設定模型」）。
@@ -270,7 +279,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 主線步驟 5 實作：下一張 #6，之後依序 #7、#8。
+- 主線步驟 5 實作：下一張 #7，之後 #8。
 
 ## 未決
 
