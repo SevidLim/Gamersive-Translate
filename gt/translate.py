@@ -44,22 +44,34 @@ class GoogleTranslator:
 
     name = "Google"
     URL = "https://translation.googleapis.com/language/translate/v2"
+    MAX_Q = 128                                         # 一次請求的 q 陣列上限（官方文件）
 
     def __init__(self, api_key, post=http_post):
         self.api_key = api_key
         self.post = post
 
     def translate(self, text, source, target, by_line=False):
-        """by_line 為 True 時每行（略過空行）各為一個 q，譯文依序以換行串回。"""
+        """by_line 為 True 時每行（略過空行）各為一個 q，每 MAX_Q 行送一次請求，譯文依序以換行串回。"""
         if not self.api_key:
             return Result(self.name, error="未設定 API key")
-        q = [line for line in text.split("\n") if line.strip()] if by_line else text
+        if not by_line:
+            return self._send(text, source, target, lambda d: d["data"]["translations"][0]["translatedText"])
+        lines = [line for line in text.split("\n") if line.strip()]
+        parts = []
+        for i in range(0, len(lines), self.MAX_Q):
+            r = self._send(lines[i:i + self.MAX_Q], source, target,
+                           lambda d: "\n".join(t["translatedText"] for t in d["data"]["translations"]))
+            if r.error is not None:
+                return r
+            parts.append(r.text)
+        return Result(self.name, text="\n".join(parts))
+
+    def _send(self, q, source, target, read_text):
         payload = {"q": q, "target": target, "format": "text"}
         if source != AUTO:
             payload["source"] = source
         return _request(self.name, self.post, f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload, None,
-                        lambda d: "\n".join(t["translatedText"] for t in d["data"]["translations"]) if by_line
-                        else d["data"]["translations"][0]["translatedText"], _error_message)
+                        read_text, _error_message)
 
 
 def _messages(text, target):

@@ -47,6 +47,22 @@ def test_by_line_sends_each_line_as_q_and_joins_translations():
     assert (r.text, r.error) == ("日誌\n閱讀指令", None)
 
 
+def test_by_line_over_128_lines_sends_batches_of_128_in_order():
+    calls = []
+
+    def post(url, payload, headers=None):
+        calls.append(payload["q"])
+        return 200, json.dumps({"data": {"translations": [{"translatedText": f"譯{s}"} for s in payload["q"]]}}).encode()
+
+    text = "\n".join(f"L{i}" for i in range(129))
+    r = GoogleTranslator("K", post).translate(text, AUTO, "zh-TW", by_line=True)
+    assert [len(q) for q in calls] == [128, 1]
+    assert calls[1] == ["L128"]
+    assert r.text.split("\n")[0] == "譯L0"
+    assert r.text.split("\n")[-1] == "譯L128"
+    assert len(r.text.split("\n")) == 129
+
+
 def test_successful_response_returns_translated_text():
     result = GoogleTranslator("K", FakePost(body=ok_body("你好，世界"))).translate("Hello, world", AUTO, "zh-TW")
     assert result.text == "你好，世界"

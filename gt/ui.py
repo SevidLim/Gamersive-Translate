@@ -272,6 +272,7 @@ class Panel(QWidget):
         self.ocr_translate_btn.clicked.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
         self.capture_btn.clicked.connect(self._capture)
         self._target_output = self.output                # 翻譯結果要顯示的譯文框
+        self._ocr_pending = False                       # 辨識完成時有翻譯進行中，OCR 翻譯待送出
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
@@ -350,6 +351,9 @@ class Panel(QWidget):
         """辨識完成（UI 執行緒）：文字區塊以換行串成原文，自動翻譯。"""
         self.capture_btn.setEnabled(True)
         self.ocr_input.setPlainText("\n".join(blocks))
+        if not self.translate_btn.isEnabled():          # 前一筆翻譯回來後再送出
+            self._ocr_pending = True
+            return
         self._submit(self.ocr_input, self.ocr_output, True)
 
     def show_ocr_error(self, reason):
@@ -402,8 +406,11 @@ class Panel(QWidget):
         self.ocr_translate_btn.setEnabled(True)
         if result.error is None:
             self._target_output.setPlainText(result.text)
-            return
-        self._show_status(f"{result.engine} 翻譯失敗：{result.error}")
+        else:
+            self._show_status(f"{result.engine} 翻譯失敗：{result.error}")
+        if self._ocr_pending:
+            self._ocr_pending = False
+            self._submit(self.ocr_input, self.ocr_output, True)
 
     def play_collapse(self):
         self._slide_to(0, COLLAPSE_MS, COLLAPSE_CURVE)
