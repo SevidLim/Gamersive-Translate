@@ -83,6 +83,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取主螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
+| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時改用 RapidOCR（PP-OCRv6 small、PP-OCRv5 mobile），由 #7 實作。現況：#7 未完成，OCR 頁使用 RapidOCR（PP-OCRv6 small） |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 
 ### 視覺規格
@@ -209,6 +210,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | Ollama | POST {endpoint}/api/chat，stream 為 false，譯文取 message.content，錯誤訊息取 error |
 
 - 第一次啟動預設 Google（config.json engine "google"）。
+- Ollama 引擎只送一般 /api/chat 請求，messages 末尾不預填空思考塊。
 - Google 在文字翻譯頁整段送出一個 q；在 OCR 頁每個非空行一個 q，每 128 行送一次請求，譯文依原順序以換行串回，任一次失敗即顯示該次失敗訊息。OpenAI 相容與 Ollama 兩頁都整段送出。
 - OpenAI 相容與 Ollama 的提示：system 訊息「把使用者的文字翻成 {目標語言代碼}，只輸出譯文。」，user 訊息為原文。
 - 程式內有語言代碼對照表 zh-TW → 繁體中文；提示使用語言代碼。
@@ -259,7 +261,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 | 項目 | RapidOCR v6 small（CPU） | RapidOCR v5 mobile（CPU） | Surya（GPU） |
 |---|---|---|---|
-| 不指定語言即可辨識 | 中、英、日、拉丁語系 | 中、英、日 | 91 種語言（中文只列 zh，未區分繁簡） |
+| 支援語言總數 | 50 種，單一模型：中、英、日＋46 種拉丁語系（tiny 等級不含日文）；官方未列韓文、西里爾 | 106 種，依書寫系統分模型：預設模型涵蓋簡中、繁中、英、日；韓文、拉丁、東斯拉夫（eslav：俄、白俄、烏克蘭、英）、西里爾、泰、希臘、阿拉伯、天城、坦米爾、泰盧固各為專用模型，需指定語言 | 91 種，不需指定語言：含漢字（中文只列 zh，未區分繁簡）、假名、韓文、西里爾、阿拉伯、泰、天城、希臘、希伯來等 |
+| 不指定語言即可辨識 | 中、英、日、拉丁語系 | 中、英、日（預設模型） | 91 種語言 |
 | 英文 | 全對 | 有錯字（Jourmal、Take a potatot、1724） | 全對，僅 TAB 圖示辨識為 JAB |
 | 俄文 | 亂碼 | 亂碼，Ф 辨識為「中」 | 全對 |
 | 熱機後每次耗時 | 約 0.5 秒 | 約 0.5 秒 | 3.3–3.4 秒 |
