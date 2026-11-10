@@ -84,7 +84,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取主螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
-| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small，由 #7 實作；llama-server 放專案根目錄 llama.cpp-cuda/（加入 .gitignore），第一次按「截圖」時啟動 |
+| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small，由 #7 實作；llama-server 位於專案根目錄 llama.cpp-cuda/，#7 將其加入 .gitignore 並更新記錄 prototype 路徑的地方，第一次按「截圖」時啟動 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 
 ### 視覺規格
@@ -284,8 +284,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 ## 待辦
 
 - 主線步驟 5 實作：下一張 #7，之後 #8。
-- 使用者在 Windows 把 prototype/llama.cpp-cuda/ 移到專案根目錄 llama.cpp-cuda/；#7 同時更新 .gitignore 與其他記錄 prototype 路徑的地方。
-- 關閉 GitHub issue #5、#6（已完成，仍為 open）。
 
 ## 未決
 
