@@ -36,6 +36,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 步驟 5 實作規則：
 
 - 全部票在同一個對話進行，依票的相依順序逐張實作。
+- 派工前，主對話讀完票、規格、README、GLOSSARY 與程式規範，把全部實作細節列成一張清單，一次請使用者確認後才派工；README 已寫明的照 README 做，README 未寫的才問使用者。
 - 每張票交給一個 sub agent 實作（sub agent 讀 implement、tdd skill）。
 - sub agent 只寫檔；git 提交由使用者在 Windows 執行。
 - 實作直接在 master 分支進行。
@@ -45,7 +46,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
   3. 主對話列出使用者手動測試清單：執行指令、逐步操作、每步預期結果、需貼回的輸出（log、指令輸出、截圖）。
   4. 使用者測試回報；有問題修正後回到第 2 步。
   5. 主對話列出提交指令（commit 訊息含 `Closes #<票號>`），使用者執行。
-  6. code-review：Standards 與 Spec 兩個 sub agent 平行執行，比對基準為該票開始前的 commit；主對話核對結果，需修正者修正後回到第 5 步。
+  6. code-review：Standards 與 Spec 兩個 sub agent 平行執行，比對基準為該票開始前的 commit，只回報硬性違規、會壞掉的程式與不符使用者核准內容之處；修正後的再審只看修正的 commit；主對話核對結果，需修正者修正後回到第 5 步。
   7. project-update。
 - 對話用量達 60 萬 tokens 時：確認目前用量，判斷能否再完成一張票；不能則執行 project-update，並產出新對話開場指示（要讀的規範與專案檔清單、下一張票號與後續順序、本節步驟 5 實作規則）。
 - 用量來源：使用者每則訊息末尾的 `[usage-band]` 用量行。
@@ -83,7 +84,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取主螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
-| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時改用 RapidOCR（PP-OCRv6 small、PP-OCRv5 mobile），由 #7 實作。現況：#7 未完成，OCR 頁使用 RapidOCR（PP-OCRv6 small） |
+| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small，由 #7 實作；llama-server 放專案根目錄 llama.cpp-cuda/（加入 .gitignore），第一次按「截圖」時啟動 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 
 ### 視覺規格
@@ -231,7 +232,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 文字翻譯頁 | 面板中輸入原文、顯示譯文的分頁 | |
 | OCR 頁 | 面板中擷取畫面文字並翻譯的分頁 | |
 | 截圖區域 | OCR 擷取的畫面範圍：全畫面、上半部、下半部，或複選的九宮格格子 | |
-| OCR 引擎 | 輸入圖片、輸出依閱讀順序排列的文字區塊的辨識服務，目前實作 RapidOCR | |
+| OCR 引擎 | 輸入圖片、輸出依閱讀順序排列的文字區塊的辨識服務；主引擎 Surya，備用依序為 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small | |
 | 文字區塊 | OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊 | |
 | 翻譯引擎（engine） | 把原文翻成譯文的服務，可選 Google、OpenAI 相容或 Ollama | 翻譯器、後端 |
 | Google | 使用 Google Cloud Translation（Basic v2）的翻譯引擎，以 API key 認證 | |
@@ -283,6 +284,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 ## 待辦
 
 - 主線步驟 5 實作：下一張 #7，之後 #8。
+- 使用者在 Windows 把 prototype/llama.cpp-cuda/ 移到專案根目錄 llama.cpp-cuda/；#7 同時更新 .gitignore 與其他記錄 prototype 路徑的地方。
+- 關閉 GitHub issue #5、#6（已完成，仍為 open）。
 
 ## 未決
 
