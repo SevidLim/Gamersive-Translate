@@ -18,6 +18,8 @@ DEFAULTS = {
     "openai_model": "",
     "ollama_endpoint": "http://localhost:11434",
     "ollama_model": "",
+    "screen": "",                               # 面板所在螢幕的 QScreen.name()，空字串＝主螢幕
+    "animation": True,                          # 動畫開關
 }
 
 
@@ -45,3 +47,8 @@ def save(cfg, path=None):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
         f.write("\n")
     os.replace(tmp, path)
+
+
+def pick_screen(screens, name, primary):
+    """名稱為 name 的螢幕；不存在時回傳主螢幕 primary。"""
+    return next((s for s in screens if s.name() == name), primary)

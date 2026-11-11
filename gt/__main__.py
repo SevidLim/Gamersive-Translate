@@ -12,6 +12,7 @@ from gt.panel_state import Command, Event, PanelStateMachine, State
 from gt.ui import EXPAND_MS, HostWindow, Panel, Strip
 
 HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全展開共 1.5 秒
+HOVER_DELAY_NO_ANIM_MS = 1500                   # 動畫關閉：停留滿 1.5 秒立即展開
 # 按下 Alt+Tab 期間 explorer 暫時接手前景的視窗 class（實測，無官方文件）
 ALT_TAB_CLASSES = {"ForegroundStaging", "XamlExplorerHostIslandWindow"}
 HANDOFF_FALLBACK_MS = 1000                      # host 一直沒失去啟用時，最晚在這之後解除抑制
@@ -35,8 +36,10 @@ def main():
     idle.timeout.connect(lambda: None)           # 定時回到 Python，讓 Ctrl+C 能被處理
     idle.start(200)
     app.setQuitOnLastWindowClosed(False)
-    screen = app.primaryScreen()
+    # 記下的螢幕不存在時改用 Windows 顯示設定中的主螢幕
+    screen = config.pick_screen(app.screens(), cfg["screen"], app.primaryScreen())
     machine = PanelStateMachine()
+    machine.animated = cfg["animation"]
     strip = Strip(screen)
     panel = Panel(screen, cfg)
     relay = _Relay()
@@ -73,7 +76,7 @@ def main():
 
     def do_capture(region, cells):
         try:
-            image, error = capture.grab(region, cells), None
+            image, error = capture.grab(region, cells, platform_win.monitor_of(int(strip.winId()))), None
         except Exception as e:
             image, error = None, e
         panel.show_now()
@@ -98,6 +101,18 @@ def main():
     relay.ocr_done.connect(on_ocr_done)
     panel.translate_requested.connect(on_translate)
     panel.setting_changed.connect(on_setting)
+
+    def on_screen(sc):
+        strip.set_screen(sc)                         # 邊條移到該螢幕右緣、垂直置中
+        panel.set_screen(sc)                         # 面板貼該螢幕右緣
+        on_setting("screen", sc.name())
+
+    def on_animation(on):
+        machine.animated = on
+        on_setting("animation", on)
+
+    panel.screen_changed.connect(on_screen)
+    panel.animation_changed.connect(on_animation)
     panel.capture_requested.connect(on_capture)
     host = HostWindow(screen)
     handoff = {"active": False}                   # host 短暫啟用、交還前景期間為 True
@@ -134,7 +149,6 @@ def main():
     foreground = platform_win.ForegroundWatcher(on_foreground)
     hover = QTimer()
     hover.setSingleShot(True)
-    hover.setInterval(HOVER_DELAY_MS)
 
     def send(event):
         if (handoff["active"] or capturing["active"]) and event in (Event.APP_ACTIVATED, Event.FOCUS_LOST):
@@ -150,7 +164,7 @@ def main():
                 panel.focus_input()
 
     def on_enter():
-        hover.start()
+        hover.start(HOVER_DELAY_MS if machine.animated else HOVER_DELAY_NO_ANIM_MS)
         send(Event.STRIP_ENTER)
 
     def on_leave():

@@ -1,4 +1,4 @@
-"""Windows 專用：Acrylic 毛玻璃、把視窗帶到前景。非 Windows 不做事。
+"""Windows 專用：Acrylic 毛玻璃、把視窗帶到前景、偵測獨佔全螢幕。非 Windows 不做事。
 
 enable_acrylic 沿用 Desktop-Agent-Pet 的 src/platform_win.py（做法照 PyQt-Frameless-Window 的 AcrylicWindow）。
 """
@@ -142,3 +142,35 @@ def class_name(hwnd):
     user32.GetClassNameW(wintypes.HWND(int(hwnd)), buf, 256)
     return buf.value
 
+
+
+QUNS_RUNNING_D3D_FULL_SCREEN = 3
+
+
+def _query_notification_state():
+    """SHQueryUserNotificationState 的結果；失敗回傳 0。"""
+    state = ctypes.c_int(0)
+    if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) != 0:
+        return 0
+    return state.value
+
+
+def exclusive_fullscreen(query=None):
+    """前景程式是否為獨佔全螢幕（D3D 全螢幕）。query 供測試注入查詢結果；非 Windows 回傳 False。"""
+    if query is None:
+        if not IS_WIN:
+            return False
+        query = _query_notification_state
+    return query() == QUNS_RUNNING_D3D_FULL_SCREEN
+
+
+MONITOR_DEFAULTTONEAREST = 2
+
+
+def monitor_of(hwnd):
+    """視窗所在螢幕的 HMONITOR（MonitorFromWindow）；非 Windows 回傳 None。"""
+    if not IS_WIN:
+        return None
+    user32.MonitorFromWindow.restype = wintypes.HMONITOR
+    user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    return user32.MonitorFromWindow(wintypes.HWND(int(hwnd)), MONITOR_DEFAULTTONEAREST) or None

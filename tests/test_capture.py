@@ -50,3 +50,18 @@ def test_grab_times_out_and_resets_camera(monkeypatch):
         capture.grab("full", set(), timeout=0.05)
     assert cam.released is True
     assert capture._camera is None
+
+
+class Out:
+    def __init__(self, hmonitor):
+        self.hmonitor = hmonitor
+
+
+def test_output_index_matches_hmonitor():
+    outputs = [[Out(11), Out(22)], [Out(33)]]
+    assert capture.output_index(outputs, 22) == (0, 1)
+    assert capture.output_index(outputs, 33) == (1, 0)
+
+
+def test_output_index_falls_back_to_first_output():
+    assert capture.output_index([[Out(11)]], 99) == (0, 0)

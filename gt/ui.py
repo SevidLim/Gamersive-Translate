@@ -6,7 +6,7 @@
 """
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
                                QStackedWidget, QVBoxLayout, QWidget)
 
@@ -62,6 +62,7 @@ QLabel#status {{
     color: #ffd7d7; background: rgba(120, 20, 20, 0.55);
     border-radius: {FIELD_RADIUS}px; padding: 6px 10px;
 }}
+QLabel#status[ok="true"] {{ color: #d7ffdf; background: rgba(20, 110, 50, 0.55); }}
 """
 
 
@@ -78,7 +79,7 @@ TOP_FLAGS = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
 
 
 class Strip(QWidget):
-    """邊條：貼主螢幕右緣、垂直置中。"""
+    """邊條：貼所選螢幕右緣、垂直置中。"""
 
     entered = Signal()
     left = Signal()
@@ -87,6 +88,9 @@ class Strip(QWidget):
         super().__init__(None, TOP_FLAGS)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.set_screen(screen)
+
+    def set_screen(self, screen):
         g = screen.geometry()
         self.setGeometry(g.x() + g.width() - STRIP_W, g.y() + (g.height() - STRIP_H) // 2, STRIP_W, STRIP_H)
 
@@ -178,7 +182,7 @@ class GridPopup(QWidget):
 
 
 class Panel(QWidget):
-    """面板：從主螢幕右緣滑出的毛玻璃視窗，內含文字翻譯頁的輸入框。"""
+    """面板：從所選螢幕右緣滑出的毛玻璃視窗，內含文字翻譯、OCR、設定三頁。"""
 
     esc_pressed = Signal()
     activated = Signal()
@@ -187,6 +191,8 @@ class Panel(QWidget):
     translate_requested = Signal(str, bool)      # 原文、是否一行一個文字區塊（OCR 頁）
     capture_requested = Signal(str, object)      # 截圖區域、九宮格格號集合
     setting_changed = Signal(str, str)           # config 欄位名、值
+    screen_changed = Signal(object)              # 設定頁選的 QScreen
+    animation_changed = Signal(bool)             # 設定頁的動畫開關
 
     def __init__(self, screen, cfg):
         super().__init__(None, TOP_FLAGS)
@@ -205,13 +211,14 @@ class Panel(QWidget):
         title.setStyleSheet("color: #f2f2f5; font-size: 12pt; font-weight: 600; background: transparent;")
         box.addWidget(title, 0, Qt.AlignTop | Qt.AlignHCenter)
         self.inner.setStyleSheet(PAGE_QSS)
-        self.tabs = [QPushButton("文字翻譯"), QPushButton("OCR")]
+        self.tabs = [QPushButton("文字翻譯"), QPushButton("OCR"), QPushButton("設定")]
         tab_row = QHBoxLayout()
         for i, b in enumerate(self.tabs):
             b.setCheckable(True)
             b.clicked.connect(lambda _=False, i=i: self._select_tab(i))
+            if i == 2:
+                tab_row.addStretch(1)                   # 設定鈕在同一列最右側
             tab_row.addWidget(b)
-        tab_row.addStretch(1)
         self.stack = QStackedWidget()
         text_page = QWidget()
         text_box = QVBoxLayout(text_page)
@@ -231,13 +238,13 @@ class Panel(QWidget):
         text_box.addWidget(self.output, 1)
         self.stack.addWidget(text_page)
         self.stack.addWidget(self._build_ocr_page())
-        self._select_tab(0)
-        self.engine_box = QComboBox()                   # 最小設定入口：引擎與其欄位（完整設定頁屬 #8）
+        self.engine_box = QComboBox()                   # 面板底部：翻譯引擎；引擎欄位在設定頁
         for key, engine in ENGINES.items():
             self.engine_box.addItem(engine.name, key)
         self.engine_rows = {}
-        settings = QVBoxLayout()
-        settings.addWidget(self.engine_box)
+        settings_page = QWidget()                       # 設定頁：所選引擎的欄位、螢幕、動畫
+        settings = QVBoxLayout(settings_page)
+        settings.setContentsMargins(0, 0, 0, 0)
         for key, engine in ENGINES.items():
             w = QWidget()
             col = QVBoxLayout(w)
@@ -251,6 +258,25 @@ class Panel(QWidget):
                 col.addWidget(edit)
             self.engine_rows[key] = w
             settings.addWidget(w)
+        self.screen_box = QComboBox()                   # 螢幕：顯示 model 與解析度，記 name
+        for sc in QGuiApplication.screens():
+            g = sc.geometry()
+            self.screen_box.addItem(f"{sc.model()} {g.width()}x{g.height()}", sc)
+            if sc is screen:
+                self.screen_box.setCurrentIndex(self.screen_box.count() - 1)
+        self.screen_box.activated.connect(lambda _: self.screen_changed.emit(self.screen_box.currentData()))
+        self.animation_btn = QPushButton("動畫")
+        self.animation_btn.setCheckable(True)
+        self.animation_btn.setChecked(cfg["animation"])
+        self.animated = cfg["animation"]
+        self.animation_btn.toggled.connect(self._animation_toggled)
+        screen_row = QHBoxLayout()
+        screen_row.addWidget(self.screen_box, 1)
+        screen_row.addWidget(self.animation_btn)
+        settings.addLayout(screen_row)
+        settings.addStretch(1)
+        self.stack.addWidget(settings_page)
+        self._select_tab(0)
         self.engine_box.setCurrentIndex(max(0, self.engine_box.findData(cfg["engine"])))
         self.engine_box.currentIndexChanged.connect(self._engine_selected)
         self._show_engine_fields()
@@ -262,9 +288,20 @@ class Panel(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.setInterval(STATUS_MS)
         self._status_timer.timeout.connect(self.status.hide)
+        self.fullscreen_row = QWidget()                 # 偵測到獨佔全螢幕時的提示列
+        fs = QHBoxLayout(self.fullscreen_row)
+        fs.setContentsMargins(0, 0, 0, 0)
+        fs_label = QLabel("偵測到獨佔全螢幕，請將遊戲改為無邊框視窗模式")
+        fs_label.setWordWrap(True)
+        fs.addWidget(fs_label, 1)
+        recheck = QPushButton("重新偵測")
+        recheck.clicked.connect(self._recheck_fullscreen)
+        fs.addWidget(recheck)
+        self.fullscreen_row.hide()
         box.addLayout(tab_row)
         box.addWidget(self.stack, 1)
-        box.addLayout(settings)
+        box.addWidget(self.engine_box)
+        box.addWidget(self.fullscreen_row)
         box.addWidget(self.status)
         self.input.submitted.connect(lambda: self._submit(self.input, self.output, False))
         self.translate_btn.clicked.connect(lambda: self._submit(self.input, self.output, False))
@@ -360,7 +397,11 @@ class Panel(QWidget):
         self.capture_btn.setEnabled(True)
         self._show_status(f"OCR 失敗：{reason}")
 
-    def _show_status(self, text):
+    def _show_status(self, text, ok=False):
+        """底部短暫訊息：預設紅底（失敗），ok 為 True 時綠底。"""
+        self.status.setProperty("ok", ok)
+        self.status.style().unpolish(self.status)
+        self.status.style().polish(self.status)
         self.status.setText(text)
         self.status.show()
         self._status_timer.start()
@@ -370,11 +411,32 @@ class Panel(QWidget):
         for key, w in self.engine_rows.items():
             w.setVisible(key == current)
 
+    def set_screen(self, screen):
+        self.screen_geo = screen.geometry()
+        if self._width > 0:
+            self._step(self._width)                     # 展開中立即移到新螢幕
+
+    def _animation_toggled(self, on):
+        self.animated = on
+        self.animation_changed.emit(on)
+
+    def check_fullscreen(self):
+        """偵測獨佔全螢幕：偵測到顯示提示列，否則隱藏。"""
+        self.fullscreen_row.setVisible(platform_win.exclusive_fullscreen())
+
+    def _recheck_fullscreen(self):
+        if platform_win.exclusive_fullscreen():
+            self._show_status("依舊不行，請確保已經改為無邊框視窗模式。")
+            return
+        self._show_status("已確認可正常運作！", ok=True)
+        QTimer.singleShot(STATUS_MS, self.fullscreen_row.hide)   # 與綠底訊息同時消失
+
     def _engine_selected(self):
         self._show_engine_fields()
         self.setting_changed.emit("engine", self.engine_box.currentData())
 
     def play_expand(self):
+        self.check_fullscreen()
         if self.isHidden():
             self._step(1)
             self.show()
@@ -416,8 +478,12 @@ class Panel(QWidget):
         self._slide_to(0, COLLAPSE_MS, COLLAPSE_CURVE)
 
     def _slide_to(self, end, full_ms, curve):
-        """從目前寬度滑到 end；動畫中途反向時，時長照剩下的距離比例縮短。"""
+        """從目前寬度滑到 end；動畫中途反向時，時長照剩下的距離比例縮短。
+        動畫關閉時在下一輪事件迴圈直接到終點並送出 animation_done。"""
         self._anim.stop()
+        if not self.animated:                       # 放到下一輪事件迴圈，時機與播動畫時一致
+            QTimer.singleShot(0, lambda: (self._step(end), self.animation_done.emit()))
+            return
         start = self._width
         # 照 glass.py：設定期間暫停 valueChanged，避免停下的動畫改起點時先送出一個錯位的值
         self._anim.blockSignals(True)

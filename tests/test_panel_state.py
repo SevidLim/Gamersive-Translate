@@ -107,3 +107,38 @@ def test_app_activation_during_collapse_animation_reverses_into_expand():
     commands = feed(m, Event.APP_ACTIVATED)
     assert m.state is State.EXPANDING
     assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
+
+
+def unanimated_machine():
+    m = PanelStateMachine()
+    m.animated = False
+    return m
+
+
+def test_hover_with_animation_off_expands_immediately():
+    m = unanimated_machine()
+    commands = feed(m, Event.STRIP_ENTER, Event.HOVER_TIMEOUT)
+    assert m.state is State.EXPANDED
+    assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
+
+
+def test_app_activation_with_animation_off_expands_immediately():
+    m = unanimated_machine()
+    commands = feed(m, Event.APP_ACTIVATED)
+    assert m.state is State.EXPANDED
+    assert commands == [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
+
+
+def test_esc_with_animation_off_collapses_immediately():
+    m = unanimated_machine()
+    commands = feed(m, Event.APP_ACTIVATED, Event.ESC_PRESSED)
+    assert m.state is State.COLLAPSED
+    assert commands == [Command.PLAY_COLLAPSE]
+
+
+def test_animation_done_with_animation_off_keeps_state():
+    m = unanimated_machine()
+    feed(m, Event.APP_ACTIVATED, Event.ANIMATION_DONE)
+    assert m.state is State.EXPANDED
+    feed(m, Event.FOCUS_LOST, Event.ANIMATION_DONE)
+    assert m.state is State.COLLAPSED

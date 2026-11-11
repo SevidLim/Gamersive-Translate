@@ -2,6 +2,7 @@
 
 handle(事件) 更新 state，回傳要執行的副作用指令清單。
 停留計時由呼叫端負責：滑鼠進入邊條時開始計時，離開時取消，滿 1.5 秒送 HOVER_TIMEOUT。
+animated 為 False（動畫關閉）時展開與收合不播動畫，狀態直接成為 EXPANDED / COLLAPSED。
 """
 
 from enum import Enum, auto
@@ -34,6 +35,7 @@ class PanelStateMachine:
     def __init__(self):
         self.state = State.COLLAPSED
         self.hovering = False
+        self.animated = True                     # 動畫開關
 
     def handle(self, event):
         if event is Event.STRIP_ENTER:
@@ -41,17 +43,17 @@ class PanelStateMachine:
         elif event is Event.STRIP_LEAVE:
             self.hovering = False
         elif event is Event.HOVER_TIMEOUT and self.hovering and self.state in (State.COLLAPSED, State.COLLAPSING):
-            self.state = State.EXPANDING
+            self.state = State.EXPANDING if self.animated else State.EXPANDED
             return [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
         elif event is Event.APP_ACTIVATED and self.state in (State.COLLAPSED, State.COLLAPSING):
-            self.state = State.EXPANDING
+            self.state = State.EXPANDING if self.animated else State.EXPANDED
             return [Command.PLAY_EXPAND, Command.FOCUS_INPUT]
         elif event is Event.APP_ACTIVATED:
             return [Command.FOCUS_INPUT]
         elif event is Event.ANIMATION_DONE and self.state is State.EXPANDING:
             self.state = State.EXPANDED
         elif event in (Event.FOCUS_LOST, Event.ESC_PRESSED) and self.state in (State.EXPANDING, State.EXPANDED):
-            self.state = State.COLLAPSING
+            self.state = State.COLLAPSING if self.animated else State.COLLAPSED
             return [Command.PLAY_COLLAPSE]
         elif event is Event.ANIMATION_DONE and self.state is State.COLLAPSING:
             self.state = State.COLLAPSED
