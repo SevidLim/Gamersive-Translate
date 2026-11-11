@@ -11,5 +11,3 @@
 | 3 | 規格 | done | GitHub issue #1（.scratch/GT/spec.md） |
 | 4 | 拆票 | done | GitHub issue #2–#8（#1 的子 issue） |
 | 5 | 實作 | doing | #2–#7 done；#8 實作完成，多螢幕切換待測 |
-| 6 | PR | todo | |
-| 7 | 回顧 | todo | |

@@ -28,8 +28,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
 | 5 | 實作 | doing（#2–#7 done；#8 實作完成，多螢幕切換待測） |
-| 6 | PR | todo |
-| 7 | 回顧 | todo |
 
 步驟 2 的 handoff 不執行。
 
@@ -289,7 +287,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 ## 待辦
 
 - #8 多螢幕切換測試（邊條與面板移到所選螢幕右緣、OCR 截圖改截所選螢幕）；通過後關閉 GitHub issue #8。
-- 主線步驟 6 PR（選用）、步驟 7 回顧。
 - 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
 ## 未決
