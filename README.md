@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2、#3、#4、#5、#6、#7 done） |
+| 5 | 實作 | doing（#2–#7 done；#8 實作完成，多螢幕切換待測） |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
 
@@ -152,7 +152,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 ### 支援的遊戲顯示模式
 
 - 支援無邊框視窗化與視窗化。
-- 遇到獨佔全螢幕時，面板提示改用無邊框模式。
+- 面板展開時以 SHQueryUserNotificationState 檢查一次，值為 QUNS_RUNNING_D3D_FULL_SCREEN（3）時，面板下方顯示「偵測到獨佔全螢幕，請將遊戲改為無邊框視窗模式」，右側有「重新偵測」鈕。按下仍偵測到時紅底 4 秒「依舊不行，請確保已經改為無邊框視窗模式。」；未偵測到時綠底「已確認可正常運作！」，4 秒後與提示列一起消失。
+- 遊戲在獨佔全螢幕時，Alt+Tab 會回到桌面。
 
 ### 邊條與面板
 
@@ -167,7 +168,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 程式啟動時與每次面板收合後，主視窗短暫取得前景再交還原本的 app；交接期間不觸發展開與收合。
 - 「Gamersive-Translate」在 Alt+Tab 清單排第二。
 - 工作列有「Gamersive-Translate」按鈕，面板展開期間消失。
-- 面板預設貼主螢幕右緣，設定中可切換螢幕。
+- 面板預設貼主螢幕右緣。設定頁的螢幕下拉清單可切換螢幕，選項為「{螢幕型號} {寬}x{高}」；切換後邊條、面板與 OCR 截圖改到所選螢幕。config.json 的 screen 記所選螢幕的 QScreen.name()；記下的螢幕不存在或為空時使用 Windows 顯示設定的主螢幕。
+- 設定頁的「動畫」開關預設開（config.json 的 animation）。關閉時展開與收合立即切換；收合完成後滑鼠在邊條停留滿 1.5 秒才展開。
 
 ### 文字翻譯頁
 
@@ -176,7 +178,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 按 Enter 或翻譯按鈕送出，Shift+Enter 換行。
 - 翻譯在背景執行，進行中翻譯按鈕停用。
 - 翻譯失敗時原文保留，面板底部以紅底訊息顯示 4 秒。
-- 面板下方為翻譯引擎下拉選單（Google、OpenAI 相容、Ollama），下拉選單下方只顯示所選引擎的設定欄位；切換時寫入 config.json 的 engine。
+- 面板上方分頁列為「文字翻譯」「OCR」與最右側的「設定」，三鈕等高。
+- 面板下方為翻譯引擎下拉選單（Google、OpenAI 相容、Ollama），切換時寫入 config.json 的 engine；所選引擎的設定欄位在設定頁。
 - 設定欄位按 Enter 或離開欄位時寫入 config.json：
 
 | 引擎 | 欄位（placeholder） | config.json 鍵 |
@@ -192,7 +195,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 ### OCR 頁
 
 - OCR 頁的辨識預設由 Surya 執行：每次截圖啟動 llama-server、辨識完關閉，啟動逾時 30 秒，llama-server 在就緒前結束時顯示「llama-server 啟動失敗（退出碼 N）」；Surya 失敗時依序改用 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small，切換時紅底 4 秒顯示「OCR 改用 {引擎}：{原因}」，本次執行留在備用引擎。
-- 面板上方有「文字翻譯」「OCR」兩個膠囊分頁鈕；面板展開時與 Alt+Tab 切回時切到文字翻譯頁並聚焦輸入框。
+- 面板展開時與 Alt+Tab 切回時切到文字翻譯頁並聚焦輸入框。
 - 截圖選項一行，由左到右：截圖區域下拉清單（全畫面、上半部、下半部，預設全畫面）、「九宮格」按鈕、「截圖」按鈕。
 - 按「九宮格」在按鈕右側展開九宮格浮出面板：3x3 相連方格，點格切換選取，選取格為較亮底；點面板外或再點「九宮格」收合；選取保留。
 - 有選九宮格時截取所選格子的外框矩形；九宮格未選時截取下拉清單的區域；在下拉清單選區域時清空九宮格選取。
@@ -285,8 +288,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 提交 gt/ocr.py 的修正：llama-server 無法啟動時關閉 llama-server.log；程式結束時等待就緒的檢查改用啟動當下的行程。
-- 主線步驟 5 實作：下一張 #8。
+- #8 多螢幕切換測試（邊條與面板移到所選螢幕右緣、OCR 截圖改截所選螢幕）；通過後關閉 GitHub issue #8。
+- 主線步驟 6 PR（選用）、步驟 7 回顧。
 - 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
 ## 未決

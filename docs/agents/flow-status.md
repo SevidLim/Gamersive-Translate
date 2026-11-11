@@ -10,6 +10,6 @@
 | 2 | 原型 | done | prototype/（branch prototype/ocr-bench）：OCR 選 Surya（GPU，llama.cpp CUDA 12.4），RapidOCR v6/v5 備用；遊戲中實測完成；handoff skip（同一 session 延續） |
 | 3 | 規格 | done | GitHub issue #1（.scratch/GT/spec.md） |
 | 4 | 拆票 | done | GitHub issue #2–#8（#1 的子 issue） |
-| 5 | 實作 | doing | 6/7（#2、#3、#4、#5、#6、#7 done） |
+| 5 | 實作 | doing | #2–#7 done；#8 實作完成，多螢幕切換待測 |
 | 6 | PR | todo | |
 | 7 | 回顧 | todo | |
