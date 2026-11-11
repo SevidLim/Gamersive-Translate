@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2、#3、#4、#5、#6 done） |
+| 5 | 實作 | doing（#2、#3、#4、#5、#6、#7 done） |
 | 6 | PR | todo |
 | 7 | 回顧 | todo |
 
@@ -70,8 +70,9 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 啟動 | .venv\Scripts\python -m gt |
 | 安裝套件 | .venv\Scripts\python -m pip install -r requirements.txt |
 | 測試 | .venv\Scripts\python -m pytest |
-| 結束 | 終端機按 Ctrl+C |
+| 結束 | 終端機按 Ctrl+C；辨識中的 llama-server 一併關閉 |
 | 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
+| 讀 llama-server log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\llama-server.log" |
 
 ## 產品規格
 
@@ -82,8 +83,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | GUI 框架 | PySide6，沿用 Desktop-Agent-Pet 的 src/glass.py（Acrylic 毛玻璃、置頂無邊框視窗、側滑動畫） |
 | 視覺語彙 | 半透明毛玻璃與按鍵設計，規格見本文件「視覺規格」，以 QSS 實作 |
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取主螢幕 |
-| OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
-| OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
+| OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf，取自 Hugging Face 本機快取 C:\Users\User\.cache\huggingface\hub，HF_HUB_OFFLINE=1 不連網；整頁辨識後，surya 標為 Figure、Image、Diagram 的區塊改以 Text 標籤用 surya 區塊模式再辨識；llama-server 輸出附加寫入 %LOCALAPPDATA%\Gamersive-Translate\llama-server.log |
+| OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv5 mobile、PP-OCRv6 small；模型檔在 .venv\Lib\site-packages\rapidocr\models\ |
 | OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 
@@ -190,14 +191,15 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ### OCR 頁
 
-- OCR 頁的辨識預設由 Surya 執行：每次截圖啟動 llama-server、辨識完關閉，啟動逾時 30 秒；Surya 失敗時依序改用 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small，切換時紅底 4 秒顯示「OCR 改用 {引擎}：{原因}」，本次執行留在備用引擎。
+- OCR 頁的辨識預設由 Surya 執行：每次截圖啟動 llama-server、辨識完關閉，啟動逾時 30 秒，llama-server 在就緒前結束時顯示「llama-server 啟動失敗（退出碼 N）」；Surya 失敗時依序改用 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small，切換時紅底 4 秒顯示「OCR 改用 {引擎}：{原因}」，本次執行留在備用引擎。
 - 面板上方有「文字翻譯」「OCR」兩個膠囊分頁鈕；面板展開時與 Alt+Tab 切回時切到文字翻譯頁並聚焦輸入框。
 - 截圖選項一行，由左到右：截圖區域下拉清單（全畫面、上半部、下半部，預設全畫面）、「九宮格」按鈕、「截圖」按鈕。
 - 按「九宮格」在按鈕右側展開九宮格浮出面板：3x3 相連方格，點格切換選取，選取格為較亮底；點面板外或再點「九宮格」收合；選取保留。
 - 有選九宮格時截取所選格子的外框矩形；九宮格未選時截取下拉清單的區域；在下拉清單選區域時清空九宮格選取。
 - 按「截圖」：面板立即隱藏，60ms 後截圖，面板立即顯示並取回前景；隱藏與顯示回來後 500ms 內面板不收合。截圖與辨識進行中「截圖」鈕停用。
 - 截圖 2 秒內未取得畫面時重置截圖並顯示「OCR 失敗：截圖逾時」；截圖或辨識失敗以「OCR 失敗：{原因}」紅底訊息顯示 4 秒。
-- 辨識結果一行一個文字區塊，依 RapidOCR 輸出順序以換行串成原文，填入上方原文框並自動翻譯；下方為譯文。
+- 辨識結果一行一個文字區塊，依 OCR 引擎輸出順序以換行串成原文，填入上方原文框並自動翻譯；下方為譯文。Surya 的文字區塊去掉 html 標籤並合併空白。
+- 辨識結果為 0 個文字區塊時原文框清空，不送出翻譯，不顯示訊息。
 - 原文可修改，按 Enter 或翻譯鈕重新翻譯，Shift+Enter 換行。
 - 兩頁一次只翻一筆：翻譯進行中兩頁翻譯鈕停用；辨識完成時若有翻譯進行中，該筆回來後自動送出 OCR 翻譯。
 - 畫面上出現任何語言都要自動辨識正確，使用者不手動選語言或換模型。
@@ -255,7 +257,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | .venv | dxcam、rapidocr、onnxruntime |
 | .venv-surya | surya-ocr、torch 2.14.1+cpu、psutil |
 | llama.cpp | llama.cpp b11669 Windows CPU x64 |
-| llama.cpp-cuda | llama.cpp b11669 Windows CUDA 12.4 x64 與 cudart；已移到專案根目錄 llama.cpp-cuda/ |
 | .gitignore | 排除 .venv/、__pycache__/、.venv-*/、llama.cpp/、llama.cpp-cuda/ |
 
 ### 實測結果（同一張遊戲截圖，2560x1440，含英文任務文字與俄文標語）
@@ -277,13 +278,16 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - RapidOCR v5 搭配 eslav 模型：俄文全對，英文有 Joumal 錯字；只涵蓋俄、白俄、烏克蘭、英文。
 - Surya（GPU）在遊戲進行中：熱機後 4.6–4.8 秒，第 1 次 23.4 秒，記憶體峰值 2397MB，VRAM 已用由 10287MB 增至 11226MB，辨識結果與未開遊戲時相同；該遊戲於辨識期間未受影響。
 - Surya 在 CPU（llama.cpp CPU 版）：熱機後 15.9–17.7 秒，記憶體峰值 3589MB，辨識結果與 GPU 版相同。
+- Surya 在程式中全畫面（2560x1440）截圖，從截圖到收到辨識結果約 24.5 秒（含啟動 llama-server）。
 - RapidOCR 依文字行高度排序輸出，全畫面時左右欄同高度的文字會交錯；Surya 依區塊輸出，同區塊多行合為一段。
 - 同一行俄文 КАРТОФЕЛИНА：v6 輸出錯誤結果 KAPTOENHA，信心分數 0.94；v5 eslav 輸出正確結果，信心分數 0.89。
 - Surya 結束時的 llama-server 清理步驟停住不結束。
 
 ## 待辦
 
-- 主線步驟 5 實作：下一張 #7，之後 #8。
+- 提交 gt/ocr.py 的修正：llama-server 無法啟動時關閉 llama-server.log；程式結束時等待就緒的檢查改用啟動當下的行程。
+- 主線步驟 5 實作：下一張 #8。
+- 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
 ## 未決
 
@@ -291,7 +295,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 日文 OCR 尚未實測。
 - 繁體中文在 Surya 的辨識品質尚未實測。
 - 全畫面 OCR 結果送翻譯前的區塊分組方式。
-- Surya 結束時 llama-server 清理停住的處理方式。
+- 辨識出 0 個文字區塊時是否改為顯示提示。
+- RapidOCR 的 [INFO] 日誌是否關閉（RapidOCR 設定 Global.log_level）。
 - config.json 內容損毀時的啟動方式。
 - Acrylic 開啟失敗時，不透明底的圓角裁切。
 - 偶發的面板不透明底（Acrylic 回報成功時）的原因；debug.log 保留 acrylic 結果紀錄。

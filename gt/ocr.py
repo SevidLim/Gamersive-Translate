@@ -87,12 +87,17 @@ class SuryaEngine:
         path = config.config_path().with_name("llama-server.log")
         path.parent.mkdir(parents=True, exist_ok=True)
         self._log_fp = open(path, "ab")              # llama-server 自己的輸出，追查啟動失敗用
-        self._proc = self._popen(
-            [str(self._binary), "-m", model, "--mmproj", mmproj, "-ngl", "99", "--host", "127.0.0.1",
-             "--port", str(port), "--parallel", "8", "--ctx-size", str(8 * 12288),
-             "--alias", SURYA_MODEL, "--jinja", "--special"],
-            stdout=self._log_fp, stderr=subprocess.STDOUT,
-            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        try:
+            self._proc = self._popen(
+                [str(self._binary), "-m", model, "--mmproj", mmproj, "-ngl", "99", "--host", "127.0.0.1",
+                 "--port", str(port), "--parallel", "8", "--ctx-size", str(8 * 12288),
+                 "--alias", SURYA_MODEL, "--jinja", "--special"],
+                stdout=self._log_fp, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        except Exception:
+            self._log_fp.close()                     # 啟動不了（例如找不到 exe）也關閉 log 檔
+            self._log_fp = None
+            raise
         log(f"llama-server 啟動 pid={self._proc.pid} port={port}")
         try:
             self._wait_ready(port)
@@ -101,10 +106,11 @@ class SuryaEngine:
             self.close()
 
     def _wait_ready(self, port):
+        proc = self._proc                            # 程式結束時 close() 會把 self._proc 設為 None
         deadline = time.monotonic() + self._timeout
         while not self._probe(f"http://127.0.0.1:{port}/health"):
-            if self._proc.poll() is not None:
-                raise RuntimeError(f"llama-server 啟動失敗（退出碼 {self._proc.returncode}）")
+            if proc.poll() is not None:
+                raise RuntimeError(f"llama-server 啟動失敗（退出碼 {proc.returncode}）")
             if time.monotonic() >= deadline:
                 raise RuntimeError("llama-server 啟動逾時")
             time.sleep(0.2)
