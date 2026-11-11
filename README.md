@@ -27,7 +27,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2–#7 done；#8 實作完成，多螢幕切換待測） |
+| 5 | 實作 | doing（#2–#8 實作完成；螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項已提交，未做 code-review；多螢幕切換待測） |
 
 步驟 2 的 handoff 不執行。
 
@@ -285,11 +285,12 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - Surya 在程式中全畫面（2560x1440）截圖，從截圖到收到辨識結果約 24.5 秒（含啟動 llama-server）。
 - RapidOCR 依文字行高度排序輸出，全畫面時左右欄同高度的文字會交錯；Surya 依區塊輸出，同區塊多行合為一段。
 - 同一行俄文 КАРТОФЕЛИНА：v6 輸出錯誤結果 KAPTOENHA，信心分數 0.94；v5 eslav 輸出正確結果，信心分數 0.89。
-- Surya 結束時的 llama-server 清理步驟停住不結束。
+- 原型由 surya 自己啟動 llama-server 時，結束時的清理步驟停住不結束。
 
 ## 待辦
 
-- #8 多螢幕切換測試（邊條與面板移到所選螢幕右緣、OCR 截圖改截所選螢幕）；通過後關閉 GitHub issue #8。
+- 多螢幕切換測試：設定頁選另一個螢幕後，邊條與面板移到該螢幕右緣；OCR 截圖與自訂框選改截該螢幕。通過後關閉 GitHub issue #8。
+- 螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項的 code-review（Standards、Spec，比對基準 a2f965f）。
 - 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
 ## 未決
