@@ -61,7 +61,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | Python | 3.10.11 |
 | git | 2.49.0.windows.1 |
 | gh CLI | 2.103.3，已登入 SevidLim（keyring，https，scope：gist、read:org、repo、workflow） |
-| 專案虛擬環境 | 專案根目錄 .venv，套件依 requirements.txt：PySide6 6.12.0、pytest 9.2.0、dxcam 0.3.0、rapidocr 3.10.0、onnxruntime 1.23.2、opencv-python-headless 5.0.0.93、numpy 2.2.6 |
+| 專案虛擬環境 | 專案根目錄 .venv，套件依 requirements.txt：PySide6 6.12.0、pytest 9.2.0、dxcam 0.3.0、rapidocr 3.10.0、onnxruntime 1.23.2、opencv-python-headless 4.11.0.86、numpy 2.2.6、surya-ocr 0.23.0、torch 2.14.1（CPU）、torchvision 0.29.2、pillow 10.4.0 |
 
 執行方式（PowerShell，於專案根目錄）：
 
@@ -84,7 +84,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取主螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv6 small、PP-OCRv5 mobile |
-| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small，由 #7 實作；llama-server 位於專案根目錄 llama.cpp-cuda/，#7 將其加入 .gitignore 並更新記錄 prototype 路徑的地方，第一次按「截圖」時啟動 |
+| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 
 ### 視覺規格
@@ -190,7 +190,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ### OCR 頁
 
-- OCR 頁的辨識由 RapidOCR（預設參數 PP-OCRv6 small）執行，第一次辨識時載入模型；Surya 主引擎與備用切換由 #7 實作。
+- OCR 頁的辨識預設由 Surya 執行：每次截圖啟動 llama-server、辨識完關閉，啟動逾時 30 秒；Surya 失敗時依序改用 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small，切換時紅底 4 秒顯示「OCR 改用 {引擎}：{原因}」，本次執行留在備用引擎。
 - 面板上方有「文字翻譯」「OCR」兩個膠囊分頁鈕；面板展開時與 Alt+Tab 切回時切到文字翻譯頁並聚焦輸入框。
 - 截圖選項一行，由左到右：截圖區域下拉清單（全畫面、上半部、下半部，預設全畫面）、「九宮格」按鈕、「截圖」按鈕。
 - 按「九宮格」在按鈕右側展開九宮格浮出面板：3x3 相連方格，點格切換選取，選取格為較亮底；點面板外或再點「九宮格」收合；選取保留。
@@ -233,7 +233,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | OCR 頁 | 面板中擷取畫面文字並翻譯的分頁 | |
 | 截圖區域 | OCR 擷取的畫面範圍：全畫面、上半部、下半部，或複選的九宮格格子 | |
 | OCR 引擎 | 輸入圖片、輸出依閱讀順序排列的文字區塊的辨識服務；主引擎 Surya，備用依序為 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small | |
-| 文字區塊 | OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊 | |
+| 文字區塊 | OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊，Surya 為一個區塊一個文字區塊 | |
 | 翻譯引擎（engine） | 把原文翻成譯文的服務，可選 Google、OpenAI 相容或 Ollama | 翻譯器、後端 |
 | Google | 使用 Google Cloud Translation（Basic v2）的翻譯引擎，以 API key 認證 | |
 | OpenAI 相容（OpenAI-compatible） | 使用 OpenAI Chat Completions 格式 API 的翻譯引擎 | |
@@ -255,7 +255,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | .venv | dxcam、rapidocr、onnxruntime |
 | .venv-surya | surya-ocr、torch 2.14.1+cpu、psutil |
 | llama.cpp | llama.cpp b11669 Windows CPU x64 |
-| llama.cpp-cuda | llama.cpp b11669 Windows CUDA 12.4 x64 與 cudart |
+| llama.cpp-cuda | llama.cpp b11669 Windows CUDA 12.4 x64 與 cudart；已移到專案根目錄 llama.cpp-cuda/ |
 | .gitignore | 排除 .venv/、__pycache__/、.venv-*/、llama.cpp/、llama.cpp-cuda/ |
 
 ### 實測結果（同一張遊戲截圖，2560x1440，含英文任務文字與俄文標語）

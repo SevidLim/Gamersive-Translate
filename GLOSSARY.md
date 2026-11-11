@@ -29,7 +29,7 @@ OCR 擷取的畫面範圍：全畫面、上半部、下半部，或複選的九�
 輸入圖片、輸出依閱讀順序排列的文字區塊的辨識服務；主引擎 Surya，備用依序為 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small。
 
 **文字區塊**:
-OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊。
+OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊；Surya 為一個區塊一個文字區塊。
 
 ### 翻譯
 

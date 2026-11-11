@@ -24,12 +24,16 @@ class _Relay(QObject):
 
     done = Signal(object)
     ocr_done = Signal(object)                    # 文字區塊清單，或辨識失敗的例外
+    ocr_switch = Signal(str, str)                # OCR 改用的引擎名與原因
 
 
 def main():
-    signal.signal(signal.SIGINT, signal.SIG_DFL)  # 終端機 Ctrl+C 直接結束程式
     cfg = config.load()                          # 首次啟動建立 config.json 並寫入預設值
     app = QApplication(sys.argv)
+    signal.signal(signal.SIGINT, lambda *a: app.quit())   # 終端機 Ctrl+C 正常結束，關閉 llama-server
+    idle = QTimer()
+    idle.timeout.connect(lambda: None)           # 定時回到 Python，讓 Ctrl+C 能被處理
+    idle.start(200)
     app.setQuitOnLastWindowClosed(False)
     screen = app.primaryScreen()
     machine = PanelStateMachine()
@@ -52,7 +56,11 @@ def main():
             cfg[field] = value
             config.save(cfg)
 
-    ocr_engine = ocr.RapidOCREngine()
+    surya = ocr.SuryaEngine()
+    ocr_engine = ocr.FallbackEngine([surya, ocr.RapidOCREngine(v5=True), ocr.RapidOCREngine()],
+                                    relay.ocr_switch.emit)    # 在背景執行緒觸發，經 queued signal 回 UI
+    relay.ocr_switch.connect(lambda name, reason: panel._show_status(f"OCR 改用 {name}：{reason}"))
+    app.aboutToQuit.connect(surya.close)         # 辨識中途結束時關閉 llama-server
     capturing = {"active": False}                 # 截圖時面板隱藏、顯示回來期間為 True
 
     def end_capture():
