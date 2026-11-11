@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from gt import capture, config, ocr, platform_win, translate
 from gt.panel_state import Command, Event, PanelStateMachine, State
-from gt.ui import EXPAND_MS, HostWindow, Panel, Strip
+from gt.ui import EXPAND_MS, HostWindow, Panel, RegionSelector, Strip, apply_font
 
 HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全展開共 1.5 秒
 HOVER_DELAY_NO_ANIM_MS = 1500                   # 動畫關閉：停留滿 1.5 秒立即展開
@@ -36,6 +36,9 @@ def main():
     idle.timeout.connect(lambda: None)           # 定時回到 Python，讓 Ctrl+C 能被處理
     idle.start(200)
     app.setQuitOnLastWindowClosed(False)
+    if not cfg["font_family"]:
+        cfg["font_family"] = app.font().family()     # 預設字型＝QApplication 目前預設字型
+    apply_font(cfg["font_family"], cfg["font_size"])
     # 記下的螢幕不存在時改用 Windows 顯示設定中的主螢幕
     screen = config.pick_screen(app.screens(), cfg["screen"], app.primaryScreen())
     machine = PanelStateMachine()
@@ -84,7 +87,44 @@ def main():
         if error is not None:
             panel.show_ocr_error(str(error) or type(error).__name__)
             return
+        start_ocr(image)
 
+    selector = {"window": None}                   # 自訂框選視窗，框選期間保留參照
+
+    def on_custom_capture():
+        capturing["active"] = True
+        panel.hide_now()
+        QTimer.singleShot(CAPTURE_SETTLE_MS, do_custom_capture)
+
+    def do_custom_capture():
+        """截整個螢幕，以凍結畫面讓使用者框選。"""
+        try:
+            frame = capture.grab("full", set(), platform_win.monitor_of(int(strip.winId())))
+        except Exception as e:
+            panel.show_now()
+            QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+            panel.show_ocr_error(str(e) or type(e).__name__)
+            return
+        w = RegionSelector(current["screen"], frame)
+        w.accepted.connect(lambda box: finish_custom(frame, w, box))
+        w.cancelled.connect(lambda: finish_custom(frame, w, None))
+        selector["window"] = w
+        w.start()
+
+    def finish_custom(frame, w, box):
+        """確定：裁切框內區域送進 OCR；取消：只顯示回面板。"""
+        selector["window"] = None
+        w.deleteLater()
+        panel.show_now()
+        QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+        if box is None:
+            panel.set_capture_enabled(True)
+            return
+        h, fw = frame.shape[:2]                      # 邏輯座標換算成截圖實體像素
+        x1, y1, x2, y2 = capture.scale_box(box, w.width(), w.height(), fw, h)
+        start_ocr(frame[y1:y2, x1:x2])
+
+    def start_ocr(image):
         def run():
             try:
                 relay.ocr_done.emit(ocr_engine.recognize(image))
@@ -102,7 +142,10 @@ def main():
     panel.translate_requested.connect(on_translate)
     panel.setting_changed.connect(on_setting)
 
+    current = {"screen": screen}                  # 目前使用的螢幕
+
     def on_screen(sc):
+        current["screen"] = sc
         strip.set_screen(sc)                         # 邊條移到該螢幕右緣、垂直置中
         panel.set_screen(sc)                         # 面板貼該螢幕右緣
         on_setting("screen", sc.name())
@@ -112,8 +155,19 @@ def main():
         on_setting("animation", on)
 
     panel.screen_changed.connect(on_screen)
+
+    def on_screens_changed(removed=None):
+        """螢幕增減：目前的螢幕被移除時邊條與面板移到主螢幕，並重建螢幕下拉清單。"""
+        sc = config.screen_after_removal(current["screen"], removed, app.primaryScreen())
+        if sc is not current["screen"]:
+            on_screen(sc)
+        panel.set_screens([s for s in app.screens() if s is not removed], current["screen"])
+
+    app.screenAdded.connect(lambda _: on_screens_changed())
+    app.screenRemoved.connect(on_screens_changed)
     panel.animation_changed.connect(on_animation)
     panel.capture_requested.connect(on_capture)
+    panel.custom_capture_requested.connect(on_custom_capture)
     host = HostWindow(screen)
     handoff = {"active": False}                   # host 短暫啟用、交還前景期間為 True
 

@@ -6,9 +6,9 @@
 """
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-                               QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QHBoxLayout, QLabel, QLineEdit,
+                               QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from gt import debuglog, platform_win
 from gt.translate import ENGINES
@@ -33,6 +33,12 @@ CELL_SIZE = CTL_H                                # 九宮格面板每格邊長
 POPUP_BG = QColor(32, 32, 40, 204)               # 深色浮層固定深灰 0.80，與下拉清單選項清單相同
 GRID_LINE = QColor(255, 255, 255, 51)            # 九宮格外框與格線（≈0.20）
 CELL_SELECTED = QColor(255, 255, 255, 87)        # 選取格的較亮半透明底（≈0.34）
+FONT_SIZES = (8, 24)                             # 設定頁「大小」範圍（pt），間隔 1
+SELECT_DIM = QColor(0, 0, 0, 120)                # 自訂框選：框外變暗
+SELECT_STROKE = QColor(255, 255, 255, 220)       # 自訂框選：選取框邊線
+HANDLE_HIT = 6                                   # 自訂框選：四角與四邊的拖曳判定範圍（px）
+HANDLE_CORNER = 8                                # 自訂框選：四角控制點方形邊長（px）
+HANDLE_EDGE = (12, 6)                            # 自訂框選：四邊中點控制點長方形長、寬（px）
 
 # 文字翻譯頁的 QSS（README「視覺規格」：半透明底、輸入欄位圓角、按鈕膠囊）
 PAGE_QSS = f"""
@@ -45,6 +51,11 @@ QPlainTextEdit, QLineEdit {{
 QPlainTextEdit:focus, QLineEdit:focus {{ border-color: rgba(255, 255, 255, 0.40); }}
 QLineEdit {{ min-height: {CTL_H - 14}px; max-height: {CTL_H - 14}px; }}
 QComboBox {{
+    color: #f2f2f5; background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
+    padding: 0 {FIELD_PAD_X}px; min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px;
+}}
+QSpinBox {{
     color: #f2f2f5; background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
     padding: 0 {FIELD_PAD_X}px; min-height: {CTL_H - 2}px; max-height: {CTL_H - 2}px;
@@ -76,6 +87,17 @@ EXPAND_CURVE = bezier(0.16, 1, 0.3, 1)           # 進場
 COLLAPSE_CURVE = bezier(0.4, 0, 0.9, 0.35)       # 退場
 
 TOP_FLAGS = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+
+
+def apply_font(family, size):
+    """全程式文字改用 family 字型、size pt，字重沿用目前。"""
+    f = QApplication.font()
+    f.setFamily(family)
+    f.setPointSize(size)
+    QApplication.setFont(f)
+    # 套了 QSS 的元件不會跟著 QApplication.setFont 更新，已建立的元件逐一設定
+    for w in QApplication.allWidgets():
+        w.setFont(f)
 
 
 class Strip(QWidget):
@@ -181,6 +203,148 @@ class GridPopup(QWidget):
             p.drawLine(0, i * CELL_SIZE, 3 * CELL_SIZE, i * CELL_SIZE)
 
 
+class RegionSelector(QWidget):
+    """自訂框選：在螢幕上以全螢幕置頂視窗顯示凍結畫面，拖出選取框後可拖四角與四邊調整。
+    框下方 ✕（取消，Esc）與 ✓（確定，Enter）；accepted 送出螢幕邏輯座標的 (x1, y1, x2, y2)。"""
+
+    accepted = Signal(object)
+    cancelled = Signal()
+
+    def __init__(self, screen, frame):
+        super().__init__(None, TOP_FLAGS)
+        h, w = frame.shape[:2]                          # dxcam 的 BGR 截圖
+        self.image = QImage(frame.data, w, h, frame.strides[0], QImage.Format_BGR888).copy()
+        self.setGeometry(screen.geometry())
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setStyleSheet(PAGE_QSS)
+        self.sel = None                                 # 選取框 [x1, y1, x2, y2]
+        self.drag = None                                # 拖曳中："new" 或要移動的邊（l、t、r、b 組合）
+        self.origin = QPoint()
+        self.cancel_btn = QPushButton("\u2715", self)
+        self.ok_btn = QPushButton("\u2713", self)
+        f = self.cancel_btn.font()
+        f.setPointSizeF(f.pointSizeF() * 0.8)               # ✕ 字形比 ✓ 大，縮小到相近
+        self.cancel_btn.setFont(f)
+        for b in (self.cancel_btn, self.ok_btn):
+            b.setFocusPolicy(Qt.NoFocus)                # 鍵盤焦點留在本視窗，Esc 與 Enter 才有效
+            b.hide()
+        self.cancel_btn.clicked.connect(self._cancel)
+        self.ok_btn.clicked.connect(self._accept)
+
+    def start(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        platform_win.bring_to_foreground(int(self.winId()))
+        self.setFocus()
+
+    def _edges(self, pos):
+        """pos 落在選取框的哪些邊上（l、t、r、b 組合），不在邊上回傳空字串。"""
+        if self.sel is None:
+            return ""
+        x1, y1, x2, y2 = self.sel
+        x, y = pos.x(), pos.y()
+        if not (x1 - HANDLE_HIT <= x <= x2 + HANDLE_HIT and y1 - HANDLE_HIT <= y <= y2 + HANDLE_HIT):
+            return ""
+        return "".join(k for k, near in (("l", abs(x - x1) <= HANDLE_HIT), ("t", abs(y - y1) <= HANDLE_HIT),
+                                         ("r", abs(x - x2) <= HANDLE_HIT), ("b", abs(y - y2) <= HANDLE_HIT)) if near)
+
+    def mousePressEvent(self, e):
+        if e.button() != Qt.LeftButton:
+            return
+        pos = e.position().toPoint()
+        self.drag = self._edges(pos) or "new"
+        if self.drag == "new":
+            self.origin = pos
+            self.sel = [pos.x(), pos.y(), pos.x(), pos.y()]
+        self.cancel_btn.hide()
+        self.ok_btn.hide()
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        if self.drag is None:
+            return
+        x, y = e.position().toPoint().x(), e.position().toPoint().y()
+        if self.drag == "new":
+            ox, oy = self.origin.x(), self.origin.y()
+            self.sel = [min(ox, x), min(oy, y), max(ox, x), max(oy, y)]
+        else:
+            for k, i, v in (("l", 0, x), ("t", 1, y), ("r", 2, x), ("b", 3, y)):
+                if k in self.drag:
+                    self.sel[i] = v
+        self.update()
+
+    def mouseReleaseEvent(self, e):
+        if self.drag is None:
+            return
+        self.drag = None
+        x1, y1, x2, y2 = self.sel                       # 拖過頭時邊對調
+        self.sel = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+        self._place_buttons()
+        self.update()
+
+    def _place_buttons(self):
+        """✕、✓ 放在框下方靠右；下方放不下時放到框上方。"""
+        x1, y1, x2, y2 = self.sel
+        for b in (self.cancel_btn, self.ok_btn):
+            b.adjustSize()
+        bw = self.cancel_btn.width() + 8 + self.ok_btn.width()
+        y = y2 + 8
+        if y + CTL_H > self.height():
+            y = max(0, y1 - 8 - CTL_H)
+        x = min(max(0, x2 - bw), self.width() - bw)
+        self.cancel_btn.move(x, y)
+        self.ok_btn.move(x + self.cancel_btn.width() + 8, y)
+        self.cancel_btn.show()
+        self.ok_btn.show()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape:
+            self._cancel()
+        elif e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._accept()
+
+    def _cancel(self):
+        self.close()
+        self.cancelled.emit()
+
+    def _accept(self):
+        if self.sel is None or self.drag is not None or self.sel[0] == self.sel[2] or self.sel[1] == self.sel[3]:
+            return                                      # 還沒有選取框時不送出
+        self.close()
+        self.accepted.emit(tuple(self.sel))
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.drawImage(QRectF(self.rect()), self.image)     # 實體像素截圖縮放到邏輯尺寸
+        path = QPainterPath()
+        path.addRect(QRectF(self.rect()))
+        if self.sel is not None:
+            x1, y1, x2, y2 = self.sel
+            r = QRectF(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+            hole = QPainterPath()
+            hole.addRect(r)
+            path = path.subtracted(hole)
+        p.fillPath(path, SELECT_DIM)
+        if self.sel is not None:
+            p.setPen(QPen(SELECT_STROKE, 1))
+            p.drawRect(r)
+            self._paint_handles(p, r)
+
+    def _paint_handles(self, p, r):
+        """四角畫小方形、四邊中點畫小長方形，表示可拖拉（同電腦版微信截圖框）。"""
+        p.setPen(Qt.NoPen)
+        p.setBrush(SELECT_STROKE)
+        c, (long, short) = HANDLE_CORNER, HANDLE_EDGE
+        for x, y in ((r.left(), r.top()), (r.right(), r.top()), (r.left(), r.bottom()), (r.right(), r.bottom())):
+            p.drawRect(QRectF(x - c / 2, y - c / 2, c, c))
+        cx, cy = r.center().x(), r.center().y()
+        for x, y in ((cx, r.top()), (cx, r.bottom())):
+            p.drawRect(QRectF(x - long / 2, y - short / 2, long, short))
+        for x, y in ((r.left(), cy), (r.right(), cy)):
+            p.drawRect(QRectF(x - short / 2, y - long / 2, short, long))
+
+
 class Panel(QWidget):
     """面板：從所選螢幕右緣滑出的毛玻璃視窗，內含文字翻譯、OCR、設定三頁。"""
 
@@ -190,7 +354,8 @@ class Panel(QWidget):
     animation_done = Signal()
     translate_requested = Signal(str, bool)      # 原文、是否一行一個文字區塊（OCR 頁）
     capture_requested = Signal(str, object)      # 截圖區域、九宮格格號集合
-    setting_changed = Signal(str, str)           # config 欄位名、值
+    setting_changed = Signal(str, object)        # config 欄位名、值
+    custom_capture_requested = Signal()          # OCR 頁「自訂框選」
     screen_changed = Signal(object)              # 設定頁選的 QScreen
     animation_changed = Signal(bool)             # 設定頁的動畫開關
 
@@ -208,7 +373,7 @@ class Panel(QWidget):
         self.inner.setGeometry(0, 0, PANEL_W, PANEL_H)
         box = QVBoxLayout(self.inner)
         title = QLabel("Gamersive-Translate")
-        title.setStyleSheet("color: #f2f2f5; font-size: 12pt; font-weight: 600; background: transparent;")
+        title.setStyleSheet("color: #f2f2f5; font-weight: 600; background: transparent;")   # 大小跟全程式
         box.addWidget(title, 0, Qt.AlignTop | Qt.AlignHCenter)
         self.inner.setStyleSheet(PAGE_QSS)
         self.tabs = [QPushButton("文字翻譯"), QPushButton("OCR"), QPushButton("設定")]
@@ -238,11 +403,11 @@ class Panel(QWidget):
         text_box.addWidget(self.output, 1)
         self.stack.addWidget(text_page)
         self.stack.addWidget(self._build_ocr_page())
-        self.engine_box = QComboBox()                   # 面板底部：翻譯引擎；引擎欄位在設定頁
+        self.engine_box = QComboBox()                   # 分頁列下方：翻譯引擎；引擎欄位在設定頁
         for key, engine in ENGINES.items():
             self.engine_box.addItem(engine.name, key)
         self.engine_rows = {}
-        settings_page = QWidget()                       # 設定頁：所選引擎的欄位、螢幕、動畫
+        settings_page = QWidget()                       # 設定頁：所選引擎的欄位、螢幕、動畫、字型、大小
         settings = QVBoxLayout(settings_page)
         settings.setContentsMargins(0, 0, 0, 0)
         for key, engine in ENGINES.items():
@@ -259,11 +424,7 @@ class Panel(QWidget):
             self.engine_rows[key] = w
             settings.addWidget(w)
         self.screen_box = QComboBox()                   # 螢幕：顯示 model 與解析度，記 name
-        for sc in QGuiApplication.screens():
-            g = sc.geometry()
-            self.screen_box.addItem(f"{sc.model()} {g.width()}x{g.height()}", sc)
-            if sc is screen:
-                self.screen_box.setCurrentIndex(self.screen_box.count() - 1)
+        self.set_screens(QGuiApplication.screens(), screen)
         self.screen_box.activated.connect(lambda _: self.screen_changed.emit(self.screen_box.currentData()))
         self.animation_btn = QPushButton("動畫")
         self.animation_btn.setCheckable(True)
@@ -274,6 +435,18 @@ class Panel(QWidget):
         screen_row.addWidget(self.screen_box, 1)
         screen_row.addWidget(self.animation_btn)
         settings.addLayout(screen_row)
+        self.font_box = QFontComboBox()                 # 字型：系統字型
+        self.font_box.setCurrentFont(QFont(cfg["font_family"]))
+        self.font_box.currentFontChanged.connect(self._font_selected)
+        self.size_box = QSpinBox()                      # 大小（pt）
+        self.size_box.setRange(*FONT_SIZES)
+        self.size_box.setValue(cfg["font_size"])
+        self.size_box.setSuffix(" pt")
+        self.size_box.valueChanged.connect(self._size_selected)
+        font_row = QHBoxLayout()
+        font_row.addWidget(self.font_box, 1)
+        font_row.addWidget(self.size_box)
+        settings.addLayout(font_row)
         settings.addStretch(1)
         self.stack.addWidget(settings_page)
         self._select_tab(0)
@@ -299,8 +472,8 @@ class Panel(QWidget):
         fs.addWidget(recheck)
         self.fullscreen_row.hide()
         box.addLayout(tab_row)
-        box.addWidget(self.stack, 1)
         box.addWidget(self.engine_box)
+        box.addWidget(self.stack, 1)
         box.addWidget(self.fullscreen_row)
         box.addWidget(self.status)
         self.input.submitted.connect(lambda: self._submit(self.input, self.output, False))
@@ -308,6 +481,7 @@ class Panel(QWidget):
         self.ocr_input.submitted.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
         self.ocr_translate_btn.clicked.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
         self.capture_btn.clicked.connect(self._capture)
+        self.custom_btn.clicked.connect(self._custom_capture)
         self._target_output = self.output                # 翻譯結果要顯示的譯文框
         self._ocr_pending = False                       # 辨識完成時有翻譯進行中，OCR 翻譯待送出
         self.setFocusPolicy(Qt.StrongFocus)
@@ -331,10 +505,12 @@ class Panel(QWidget):
         self.grid_popup = GridPopup(self.grid_btn)
         self.grid_btn.clicked.connect(self._open_grid)
         self.capture_btn = QPushButton("截圖")
+        self.custom_btn = QPushButton("自訂框選")
         region_row.addWidget(self.region_box)
         region_row.addWidget(self.grid_btn)
-        region_row.addWidget(self.capture_btn)
         region_row.addStretch(1)
+        region_row.addWidget(self.custom_btn)
+        region_row.addWidget(self.capture_btn)         # 截圖鈕在最右側，自訂框選在它左邊
         self.ocr_input = SourceEdit()                   # OCR 頁上方：辨識出的原文
         self.ocr_input.setPlaceholderText("截圖後顯示辨識出的原文，可修改後 Enter 重新翻譯")
         self.ocr_translate_btn = QPushButton("翻譯")
@@ -367,10 +543,19 @@ class Panel(QWidget):
         self.grid_popup.move(self.grid_btn.mapToGlobal(QPoint(self.grid_btn.width(), 0)))
         self.grid_popup.show()
 
+    def set_capture_enabled(self, on):
+        """「截圖」與「自訂框選」一起啟用或停用。"""
+        self.capture_btn.setEnabled(on)
+        self.custom_btn.setEnabled(on)
+
     def _capture(self):
-        self.capture_btn.setEnabled(False)              # 截圖與辨識完成前不重複送出
+        self.set_capture_enabled(False)                 # 截圖與辨識完成前不重複送出
         # 有選格子時用九宮格，全部未選時用下拉清單的區域（capture.crop_box 以 cells 優先）
         self.capture_requested.emit(self.region_box.currentData(), set(self.grid_popup.cells))
+
+    def _custom_capture(self):
+        self.set_capture_enabled(False)                 # 框選、截圖與辨識完成前不重複送出
+        self.custom_capture_requested.emit()
 
     def hide_now(self):
         """截圖前立即隱藏面板（不播動畫），面板狀態機狀態不變。"""
@@ -386,7 +571,7 @@ class Panel(QWidget):
 
     def show_ocr_result(self, blocks):
         """辨識完成（UI 執行緒）：文字區塊以換行串成原文，自動翻譯。"""
-        self.capture_btn.setEnabled(True)
+        self.set_capture_enabled(True)
         self.ocr_input.setPlainText("\n".join(blocks))
         if not self.translate_btn.isEnabled():          # 前一筆翻譯回來後再送出
             self._ocr_pending = True
@@ -394,7 +579,7 @@ class Panel(QWidget):
         self._submit(self.ocr_input, self.ocr_output, True)
 
     def show_ocr_error(self, reason):
-        self.capture_btn.setEnabled(True)
+        self.set_capture_enabled(True)
         self._show_status(f"OCR 失敗：{reason}")
 
     def _show_status(self, text, ok=False):
@@ -410,6 +595,23 @@ class Panel(QWidget):
         current = self.engine_box.currentData()
         for key, w in self.engine_rows.items():
             w.setVisible(key == current)
+
+    def set_screens(self, screens, current):
+        """重建螢幕下拉清單（「{model} {寬}x{高}」），選取 current。"""
+        self.screen_box.clear()
+        for sc in screens:
+            g = sc.geometry()
+            self.screen_box.addItem(f"{sc.model()} {g.width()}x{g.height()}", sc)
+            if sc is current:
+                self.screen_box.setCurrentIndex(self.screen_box.count() - 1)
+
+    def _font_selected(self, font):
+        apply_font(font.family(), self.size_box.value())
+        self.setting_changed.emit("font_family", font.family())
+
+    def _size_selected(self, size):
+        apply_font(self.font_box.currentFont().family(), size)
+        self.setting_changed.emit("font_size", size)
 
     def set_screen(self, screen):
         self.screen_geo = screen.geometry()

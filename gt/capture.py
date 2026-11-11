@@ -21,6 +21,14 @@ def crop_box(w, h, region, cells):
     return {"full": (0, 0, w, h), "top": (0, 0, w, h // 2), "bottom": (0, h // 2, w, h)}[region]
 
 
+def scale_box(box, logical_w, logical_h, img_w, img_h):
+    """把螢幕邏輯座標（Qt）的矩形 (x1, y1, x2, y2) 換算成截圖實體像素，並夾在截圖範圍內。"""
+    sx, sy = img_w / logical_w, img_h / logical_h
+    x1, y1, x2, y2 = box
+    return (min(max(int(x1 * sx), 0), img_w), min(max(int(y1 * sy), 0), img_h),
+            min(max(int(x2 * sx), 0), img_w), min(max(int(y2 * sy), 0), img_h))
+
+
 def output_index(outputs, hmonitor):
     """dxcam 的輸出清單（outputs[device][output]）中 hmonitor 相同者的 (device_idx, output_idx)；找不到回傳 (0, 0)。"""
     for d, row in enumerate(outputs):

@@ -3,7 +3,7 @@
 import pytest
 
 from gt import capture
-from gt.capture import crop_box
+from gt.capture import crop_box, scale_box
 
 
 @pytest.mark.parametrize("w, h, region, cells, box", [
@@ -65,3 +65,13 @@ def test_output_index_matches_hmonitor():
 
 def test_output_index_falls_back_to_first_output():
     assert capture.output_index([[Out(11)]], 99) == (0, 0)
+
+
+@pytest.mark.parametrize("box, logical, image, expected", [
+    ((100, 50, 300, 250), (1920, 1080), (1920, 1080), (100, 50, 300, 250)),     # 100% 縮放
+    ((100, 50, 300, 250), (1280, 720), (1920, 1080), (150, 75, 450, 375)),      # 150% 縮放
+    ((100, 50, 300, 250), (1536, 864), (1920, 1080), (125, 62, 375, 312)),      # 125% 縮放
+    ((-5, -5, 2000, 2000), (1920, 1080), (1920, 1080), (0, 0, 1920, 1080)),     # 超出螢幕時夾在範圍內
+])
+def test_scale_box(box, logical, image, expected):
+    assert scale_box(box, *logical, *image) == expected

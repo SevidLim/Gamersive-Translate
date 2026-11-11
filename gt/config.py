@@ -20,6 +20,8 @@ DEFAULTS = {
     "ollama_model": "",
     "screen": "",                               # 面板所在螢幕的 QScreen.name()，空字串＝主螢幕
     "animation": True,                          # 動畫開關
+    "font_family": "",                          # 全程式字型，空字串＝QApplication 目前預設字型
+    "font_size": 14,                            # 全程式文字大小（pt），8–24
 }
 
 
@@ -52,3 +54,8 @@ def save(cfg, path=None):
 def pick_screen(screens, name, primary):
     """名稱為 name 的螢幕；不存在時回傳主螢幕 primary。"""
     return next((s for s in screens if s.name() == name), primary)
+
+
+def screen_after_removal(current, removed, primary):
+    """螢幕 removed 被移除後要使用的螢幕：目前使用的螢幕被移除時改用主螢幕 primary。"""
+    return primary if current is removed else current
