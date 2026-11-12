@@ -14,8 +14,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 分支 | master；原型在 prototype/ocr-bench |
 | 開發流程 | sevid-flow 主線 skill 組 |
 | Issue tracker | GitHub Issues，以 gh CLI 操作 |
-| 規範檔 | AGENTS.md |
-| Domain docs | single-context：根目錄 GLOSSARY.md 與 docs/adr/ |
 | 功能代號 | GT |
 
 ## 主線進度（GT）
@@ -78,12 +76,12 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 | 項目 | 決定 |
 |---|---|
-| GUI 框架 | PySide6，沿用 Desktop-Agent-Pet 的 src/glass.py（Acrylic 毛玻璃、置頂無邊框視窗、側滑動畫） |
+| GUI 框架 | PySide6（Acrylic 毛玻璃、置頂無邊框視窗、側滑動畫） |
 | 視覺語彙 | 半透明毛玻璃與按鍵設計，規格見本文件「視覺規格」，以 QSS 實作 |
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取工具所在螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf，取自 Hugging Face 本機快取 C:\Users\User\.cache\huggingface\hub，HF_HUB_OFFLINE=1 不連網；整頁辨識後，surya 標為 Figure、Image、Diagram 的區塊改以 Text 標籤用 surya 區塊模式再辨識；llama-server 輸出附加寫入 %LOCALAPPDATA%\Gamersive-Translate\llama-server.log |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv5 mobile、PP-OCRv6 small；模型檔在 .venv\Lib\site-packages\rapidocr\models\ |
-| OCR 引擎選擇 | 定案：OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
+| OCR 引擎選擇 | OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 
 ### 視覺規格
@@ -224,10 +222,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 未送出請求即失敗的情況：Google 未設定 API key（「未設定 API key」）；OpenAI 相容未設定 model（「未設定模型」）；Ollama 未設定 endpoint（「未設定端點」）、未設定 model（「未設定模型」）。
 - 失敗訊息格式：「{引擎} 翻譯失敗：{原因}」；原因為連線失敗、請求失敗、HTTP {狀態碼}：{伺服器訊息}、HTTP {狀態碼}、回應格式無法解析，或上列未設定訊息。
 - 翻譯失敗時不自動換引擎重試。
-
-### 第一版不做
-
-- 韓文 OCR。
 
 ## 詞彙
 
