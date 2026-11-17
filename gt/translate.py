@@ -88,6 +88,14 @@ def _messages(text, target):
             {"role": "user", "content": text}]
 
 
+def _openai_messages(text, target):
+    """OpenAI 相容專用的提示：要求完整翻譯、已是目標語言的文字原樣保留；user 為原文。"""
+    name = LANG_NAMES.get(target, target)
+    return [{"role": "system", "content": f"你是專業翻譯。把使用者的全部文字翻成 {target}（{name}）。不是 {target} 的每一句都要翻譯，"
+                                          f"已經是 {target} 的文字照原樣保留；不可省略、摘要或改寫任何內容；外文一律直接從原文翻譯，不可沿用原文中已附的譯文；只輸出譯文。"},
+            {"role": "user", "content": text}]
+
+
 def _error_message(d):
     """Google 與 OpenAI 相容共用的錯誤格式：{"error": {"message": "..."}}。"""
     return d["error"]["message"]
@@ -148,7 +156,7 @@ class OpenAICompatibleTranslator:
             return status, body
 
         return _request(self.name, post, _join_url(self.base_url, "/chat/completions"),
-                        {"model": self.model, "messages": _messages(text, target), "reasoning_effort": "none"}, headers,
+                        {"model": self.model, "messages": _openai_messages(text, target), "reasoning_effort": "medium"}, headers,
                         lambda d: d["choices"][0]["message"]["content"], _error_message)
 
 

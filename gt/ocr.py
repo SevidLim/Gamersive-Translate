@@ -4,6 +4,7 @@
 圖片為 BGR 的 numpy 陣列（dxcam、cv2.imread 的格式）。
 """
 
+import html as html_lib
 import os
 import re
 import socket
@@ -44,7 +45,10 @@ def _model_files():
 
 def _clean(html):
     html = re.sub(r'<p class="img-desc">.*?</p>', " ", html, flags=re.S)    # surya 對圖片區塊附的畫面描述
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
+    text = html_lib.unescape(re.sub(r"<[^>]+>", " ", html))                   # 去標籤後才還原 &lt; &gt; &amp;
+    # Surya 2.5 的區塊座標／標籤 special token，如 <|347|>、<|Text|>（見 surya/inference/compact.py）
+    text = re.sub(r"<\|(?:\d{1,4}|[A-Za-z-]+)\|>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def surya_blocks(pred, img):

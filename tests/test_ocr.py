@@ -175,3 +175,13 @@ def test_surya_figure_output_keeps_image_text_and_drops_image_description():
 
 def test_surya_html_without_image_description_keeps_all_text():
     assert ocr._clean("<p>Read  directive</p><p>Journal</p>") == "Read directive Journal"
+
+
+def test_surya_html_entities_are_unescaped_after_tags_are_removed():
+    assert ocr._clean("<p>&lt;影片ID&gt;/</p>") == "<影片ID>/"
+    assert ocr._clean("<p>a &amp; b</p>") == "a & b"
+
+
+def test_surya_special_tokens_are_removed():
+    assert ocr._clean("INDEX.md &lt;|347|&gt; RANKINGS.md &lt;|377|&gt;&lt;|333|&gt; x") == "INDEX.md RANKINGS.md x"
+    assert ocr._clean("&lt;|Text|&gt;&lt;|120|&gt;Journal") == "Journal"

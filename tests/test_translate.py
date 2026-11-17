@@ -133,8 +133,17 @@ def test_openai_request_content():
     assert url == "https://api.example.com/v1/chat/completions"
     assert headers == {"Authorization": "Bearer SK"}
     assert payload == {"model": "gpt-x", "messages": [
-        {"role": "system", "content": "把使用者的文字翻成 zh-TW，只輸出譯文。"},
-        {"role": "user", "content": "Hello"}], "reasoning_effort": "none"}
+        {"role": "system", "content": "你是專業翻譯。把使用者的全部文字翻成 zh-TW（繁體中文）。不是 zh-TW 的每一句都要翻譯，"
+                                      "已經是 zh-TW 的文字照原樣保留；不可省略、摘要或改寫任何內容；外文一律直接從原文翻譯，不可沿用原文中已附的譯文；只輸出譯文。"},
+        {"role": "user", "content": "Hello"}], "reasoning_effort": "medium"}
+
+
+def test_openai_system_prompt_uses_code_when_language_name_unknown():
+    post = FakePost(body=openai_body("こんにちは"))
+    OpenAICompatibleTranslator("http://h/v1", "K", "m", post).translate("Hello", AUTO, "ja")
+    assert post.calls[0][1]["messages"][0]["content"] == (
+        "你是專業翻譯。把使用者的全部文字翻成 ja（ja）。不是 ja 的每一句都要翻譯，"
+        "已經是 ja 的文字照原樣保留；不可省略、摘要或改寫任何內容；外文一律直接從原文翻譯，不可沿用原文中已附的譯文；只輸出譯文。")
 
 
 def test_openai_no_key_sends_empty_bearer():
