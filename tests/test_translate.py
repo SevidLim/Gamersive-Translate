@@ -3,6 +3,9 @@
 import http.client
 import json
 
+import pytest
+
+from gt import translate
 from gt.translate import AUTO, ENGINES, Field, GoogleTranslator, OllamaTranslator, OpenAICompatibleTranslator, make_translator
 
 
@@ -13,11 +16,16 @@ class FakePost:
         self.status, self.body, self.error = status, body, error
         self.calls = []
 
-    def __call__(self, url, payload, headers=None):
+    def __call__(self, url, payload, headers=None, timeout=None):  # timeout：openai_post 經 http_post 傳入
         self.calls.append((url, payload, headers))
         if self.error:
             raise self.error
         return self.status, self.body
+
+
+@pytest.fixture(autouse=True)
+def _no_debuglog(monkeypatch):
+    monkeypatch.setattr(translate, "log", lambda msg: None)
 
 
 def ok_body(text, detected="en"):
@@ -126,7 +134,7 @@ def test_openai_request_content():
     assert headers == {"Authorization": "Bearer SK"}
     assert payload == {"model": "gpt-x", "messages": [
         {"role": "system", "content": "把使用者的文字翻成 zh-TW，只輸出譯文。"},
-        {"role": "user", "content": "Hello"}]}
+        {"role": "user", "content": "Hello"}], "reasoning_effort": "none"}
 
 
 def test_openai_no_key_sends_empty_bearer():
@@ -218,3 +226,54 @@ def test_make_translator_uses_selected_engine(monkeypatch):
 def test_engine_table_lists_engines_and_fields():
     assert [(k, e.name) for k, e in ENGINES.items()] == [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
     assert ENGINES["ollama"].fields == [Field("ollama_endpoint", "endpoint", False), Field("ollama_model", "model", False)]
+
+
+def test_openai_logs_status_and_full_response_body(monkeypatch):
+    messages = []
+    monkeypatch.setattr(translate, "log", messages.append)
+    OpenAICompatibleTranslator("http://x/v1", "K", "m", FakePost(body=openai_body("你好"))).translate("Hello", AUTO, "zh-TW")
+    assert len(messages) == 1
+    assert "status=200" in messages[0]
+    assert r"\\u4f60\\u597d" in messages[0]            # json.dumps 預設 ensure_ascii，repr 再把反斜線加倍
+
+
+class FakeResponse:
+    status = 200
+
+    def read(self):
+        return b"{}"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_http_post_passes_timeout_to_urlopen(monkeypatch):
+    timeouts = []
+
+    def fake_urlopen(req, timeout):
+        timeouts.append(timeout)
+        return FakeResponse()
+
+    monkeypatch.setattr(translate.urllib.request, "urlopen", fake_urlopen)
+    assert translate.http_post("http://h/x", {}) == (200, b"{}")
+    translate.http_post("http://h/x", {}, None, 60)
+    assert timeouts == [10, 60]
+
+
+def test_openai_engine_uses_openai_post_with_60s_timeout(monkeypatch):
+    cfg = {"engine": "openai", "openai_base_url": "http://o/v1", "openai_api_key": "", "openai_model": "m"}
+    assert ENGINES["openai"].build(cfg).post is translate.openai_post
+    calls = []
+    monkeypatch.setattr(translate, "http_post", lambda *a: calls.append(a) or (200, b"{}"))
+    translate.openai_post("http://o/v1/chat/completions", {"k": 1}, {"h": "v"})
+    assert calls == [("http://o/v1/chat/completions", {"k": 1}, {"h": "v"}, 60)]
+
+
+def test_google_and_ollama_engines_keep_http_post():
+    cfg = {"google_api_key": "G", "ollama_endpoint": "http://l:11434", "ollama_model": "q"}
+    assert ENGINES["google"].build(cfg).post is translate.http_post
+    assert ENGINES["ollama"].build(cfg).post is translate.http_post
+    assert translate.TIMEOUT_S == 10

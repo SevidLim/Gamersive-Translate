@@ -15,9 +15,12 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable, NamedTuple
 
+from gt.debuglog import log
+
 AUTO = "auto"
 LANG_NAMES = {"zh-TW": "繁體中文"}                 # 語言代碼 → 語言名稱
 TIMEOUT_S = 10
+OPENAI_TIMEOUT_S = 60                               # OpenAI 相容的逾時，超過就中斷
 
 
 @dataclass
@@ -27,15 +30,20 @@ class Result:
     error: str = None
 
 
-def http_post(url, payload, headers=None):
+def http_post(url, payload, headers=None, timeout=TIMEOUT_S):
     """以 JSON 送出 POST；HTTP 錯誤狀態也回傳 (狀態碼, 內容)，連線失敗則丟出 OSError。"""
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
                                  headers={"Content-Type": "application/json; charset=utf-8", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+
+
+def openai_post(url, payload, headers=None):
+    """OpenAI 相容專用的 POST：逾時為 OPENAI_TIMEOUT_S。"""
+    return http_post(url, payload, headers, OPENAI_TIMEOUT_S)
 
 
 class GoogleTranslator:
@@ -125,15 +133,22 @@ class OpenAICompatibleTranslator:
 
     name = "OpenAI 相容"
 
-    def __init__(self, base_url, api_key, model, post=http_post):
+    def __init__(self, base_url, api_key, model, post=openai_post):
         self.base_url, self.api_key, self.model, self.post = base_url, api_key, model, post
 
     def translate(self, text, source, target):
         if missing := _missing_model(self.name, self.model):
             return missing
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        return _request(self.name, self.post, _join_url(self.base_url, "/chat/completions"),
-                        {"model": self.model, "messages": _messages(text, target)}, headers,
+
+        def post(url, payload, headers):
+            status, body = self.post(url, payload, headers)
+            # 暫時 debug：OpenAI 相容的狀態碼與完整回應內容，追查譯文只回一小段
+            log(f"OpenAI 相容回應 status={status} body={body.decode('utf-8', 'replace')!r}")
+            return status, body
+
+        return _request(self.name, post, _join_url(self.base_url, "/chat/completions"),
+                        {"model": self.model, "messages": _messages(text, target), "reasoning_effort": "none"}, headers,
                         lambda d: d["choices"][0]["message"]["content"], _error_message)
 
 
@@ -177,7 +192,7 @@ ENGINES = {
                      [Field("openai_base_url", "base URL", False), Field("openai_api_key", "API key", True),
                       Field("openai_model", "model", False)],
                      lambda cfg: OpenAICompatibleTranslator(cfg["openai_base_url"], cfg["openai_api_key"],
-                                                            cfg["openai_model"], http_post)),
+                                                            cfg["openai_model"], openai_post)),
     "ollama": Engine(OllamaTranslator.name, [Field("ollama_endpoint", "endpoint", False), Field("ollama_model", "model", False)],
                      lambda cfg: OllamaTranslator(cfg["ollama_endpoint"], cfg["ollama_model"], http_post)),
 }

@@ -43,6 +43,7 @@ def _model_files():
 
 
 def _clean(html):
+    html = re.sub(r'<p class="img-desc">.*?</p>', " ", html, flags=re.S)    # surya 對圖片區塊附的畫面描述
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
 
 
@@ -61,7 +62,10 @@ def surya_blocks(pred, img):
     else:
         html = {}
     blocks = []
-    for b in page.blocks:
+    for i, b in enumerate(page.blocks):
+        # 暫時 debug：每個區塊的原始輸出，追查讀出文字以外的內容
+        log(f"surya 區塊 {i} label={b.label} skipped={b.skipped} 再辨識={id(b) in html} 整頁 html={b.html!r}"
+            + (f" 再辨識 html={html[id(b)]!r}" if id(b) in html else ""))
         text = _clean(html.get(id(b), b.html))
         if text:
             blocks.append(text)
@@ -172,9 +176,14 @@ class FallbackEngine:
 
     def recognize(self, image):
         while True:
+            start = time.monotonic()                 # 暫時 debug：每次辨識的引擎、文字區塊數、耗時
             try:
-                return self._engines[0].recognize(image)
+                blocks = self._engines[0].recognize(image)
+                log(f"OCR 引擎={self._engines[0].name} 文字區塊數={len(blocks)} 耗時={time.monotonic() - start:.2f}s")
+                return blocks
             except Exception as e:
+                # 暫時 debug：引擎失敗原因
+                log(f"OCR 引擎 {self._engines[0].name} 失敗（{time.monotonic() - start:.2f}s）：{e!r}")
                 if len(self._engines) == 1:
                     raise
                 self._engines.pop(0)

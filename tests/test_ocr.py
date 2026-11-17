@@ -49,6 +49,27 @@ def test_fallback_raises_when_all_engines_fail():
         engine.recognize("img")
 
 
+def _collect_log(monkeypatch):
+    messages = []
+    monkeypatch.setattr(ocr, "log", messages.append)
+    return messages
+
+
+def test_fallback_logs_engine_name_block_count_and_seconds(monkeypatch):
+    messages = _collect_log(monkeypatch)
+    FallbackEngine([_Engine("備用", ["a", "b"])]).recognize("img")
+    assert len(messages) == 1
+    assert "引擎=備用" in messages[0] and "文字區塊數=2" in messages[0] and "耗時=" in messages[0]
+
+
+def test_fallback_logs_failure_reason_of_failed_engine(monkeypatch):
+    messages = _collect_log(monkeypatch)
+    main, backup = _Engine("Surya", error=RuntimeError("llama-server 啟動逾時")), _Engine("備用", ["a"])
+    FallbackEngine([main, backup]).recognize("img")
+    assert any("Surya" in m and "llama-server 啟動逾時" in m for m in messages)
+    assert any("引擎=備用" in m and "文字區塊數=1" in m for m in messages)
+
+
 class _Proc:
     pid, returncode = 1234, None
 
@@ -121,3 +142,36 @@ def test_surya_figure_block_is_recognized_again_in_block_mode():
 
     assert surya_blocks(pred, object()) == ["Journal", "Read directive"]
     assert len(calls) == 2
+
+
+def test_surya_blocks_logs_label_and_raw_html_of_each_block(monkeypatch):
+    pytest.importorskip("surya")
+    from types import SimpleNamespace as NS
+    from gt.ocr import surya_blocks
+    messages = _collect_log(monkeypatch)
+
+    def pred(images, layouts=None, full_page=None):
+        if layouts is None:
+            return [NS(image_bbox=[0, 0, 10, 10], blocks=[
+                NS(label="Text", skipped=False, html="<p>Journal</p>", polygon=[[0, 0], [1, 0], [1, 1], [0, 1]]),
+                NS(label="Figure", skipped=True, html="", polygon=[[0, 2], [9, 2], [9, 9], [0, 9]])])]
+        return [NS(blocks=[NS(html="<p>Read\ndirective</p>")])]
+
+    surya_blocks(pred, object())
+    assert len(messages) == 2
+    assert "label=Text" in messages[0] and "skipped=False" in messages[0] and "'<p>Journal</p>'" in messages[0]
+    assert "label=Figure" in messages[1] and "skipped=True" in messages[1]
+    assert "'<p>Read\\ndirective</p>'" in messages[1]          # 原始輸出以 repr 寫成單行
+    assert "\n" not in messages[1]
+
+
+def test_surya_figure_output_keeps_image_text_and_drops_image_description():
+    html = ('<img alt="Screenshot: Browser window displaying a GitHub repository page with a Windows desktop background."/>'
+            '<p class="img-text">RoundedTB<br/>This PC<br/>Control Panel</p>'
+            '<p class="img-desc">A screenshot of a web browser showing a GitHub repository page for '
+            "'printing-press-library' on a dark background of a Windows desktop with file and application icons.</p>")
+    assert ocr._clean(html) == "RoundedTB This PC Control Panel"
+
+
+def test_surya_html_without_image_description_keeps_all_text():
+    assert ocr._clean("<p>Read  directive</p><p>Journal</p>") == "Read directive Journal"

@@ -25,7 +25,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 2 | 原型 | done |
 | 3 | 規格（to-spec） | done |
 | 4 | 拆票（to-tickets） | done |
-| 5 | 實作 | doing（#2–#8 實作完成；螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項已提交，未做 code-review） |
+| 5 | 實作 | doing（#2–#8 實作完成；螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項已提交，未做 code-review；聆聽、拼音、圖示鈕、清除鈕、OCR 圖片描述移除已寫入、未提交，Windows 手動測試進行中） |
 
 步驟 2 的 handoff 不執行。
 
@@ -57,7 +57,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | Python | 3.10.11 |
 | git | 2.49.0.windows.1 |
 | gh CLI | 2.103.3，已登入 SevidLim（keyring，https，scope：gist、read:org、repo、workflow） |
-| 專案虛擬環境 | 專案根目錄 .venv，套件依 requirements.txt：PySide6 6.12.0、pytest 9.2.0、dxcam 0.3.0、rapidocr 3.10.0、onnxruntime 1.23.2、opencv-python-headless 4.11.0.86、numpy 2.2.6、surya-ocr 0.23.0、torch 2.14.1（CPU）、torchvision 0.29.2、pillow 10.4.0 |
+| 專案虛擬環境 | 專案根目錄 .venv，套件依 requirements.txt：PySide6 6.12.0、pytest 9.2.0、dxcam 0.3.0、rapidocr 3.10.0、onnxruntime 1.23.2、opencv-python-headless 4.11.0.86、numpy 2.2.6、surya-ocr 0.23.0、torch 2.14.1（CPU）、torchvision 0.29.2、pillow 10.4.0、uroman 1.3.1.1 |
 
 執行方式（PowerShell，於專案根目錄）：
 
@@ -69,6 +69,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 結束 | 終端機按 Ctrl+C；辨識中的 llama-server 一併關閉 |
 | 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
 | 讀 llama-server log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\llama-server.log" |
+
+debug.log 的暫時記錄：Acrylic 開啟結果；Surya 每個區塊的標籤、是否再辨識、原始輸出；每次辨識的引擎、文字區塊數、耗時、失敗原因；截圖區域與圖片尺寸；辨識結果送到面板時的分頁與翻譯狀態；翻譯送出、翻譯回來、翻譯結果送到面板。每次送辨識的圖片存成 %LOCALAPPDATA%\Gamersive-Translate\last-capture.png，每次覆寫。
 
 ## 產品規格
 
@@ -83,6 +85,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv5 mobile、PP-OCRv6 small；模型檔在 .venv\Lib\site-packages\rapidocr\models\ |
 | OCR 引擎選擇 | OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
+| 聆聽 | 語言偵測用 Google Cloud Translation Basic（v2）的 detect，API key 為 google_api_key；Windows 有該語言語音時用 QtTextToSpeech；其餘用 OpenAI 語音：POST {openai_base_url}/audio/speech，Authorization: Bearer {openai_api_key}，model gpt-4o-mini-tts、voice alloy、mp3，以 QtMultimedia 播放 |
+| 拼音 | uroman 1.3.1.1，本機執行 |
 
 ### 視覺規格
 
@@ -169,11 +173,13 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ### 文字翻譯頁
 
-- 上下分屏：上方輸入原文，下方顯示譯文（唯讀）；中間一列為語言標示「自動偵測 → 繁體中文」與膠囊形翻譯按鈕。
+- 上下分屏：上方原文框，下方譯文框（唯讀）；中間一列由左到右為語言標示「自動偵測 → 繁體中文」、「清除」鈕、「翻譯」鈕。
 - 來源語言預設自動偵測，目標語言預設繁體中文（config.json：source_lang "auto"、target_lang "zh-TW"）。
 - 按 Enter 或翻譯按鈕送出，Shift+Enter 換行。
 - 翻譯在背景執行，進行中翻譯按鈕停用。
 - 翻譯失敗時原文保留，面板底部以紅底訊息顯示 4 秒。
+- 「清除」鈕清空該頁的原文、譯文與拼音；翻譯進行中停用；最近一次聆聽來自該頁時同時停止聆聽。
+- 原文框與譯文框的圖示鈕、聆聽、拼音依「圖示鈕、聆聽與拼音」一節。
 - 面板上方分頁列為「文字翻譯」「OCR」與最右側的「設定」，三鈕等高。
 - 分頁列下方、分頁內容上方為翻譯引擎下拉選單（Google、OpenAI 相容、Ollama），三個分頁都顯示，切換時寫入 config.json 的 engine。
 - 設定頁內容依序為：所選引擎的設定欄位、螢幕與動畫、字型與大小。
@@ -190,6 +196,18 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 下拉選單的選項清單為不透明深色底。
 - 輸入欄位圓角 11px、半透明底；按鈕膠囊形，圓角半徑為按鈕高度的一半。
 
+### 圖示鈕、聆聽與拼音
+
+- 文字翻譯頁與 OCR 頁的原文框、譯文框右下角各有三個圖示鈕，由左到右：聆聽 🔊、複製 ⧉、Google 搜索 🔍；滑鼠停留顯示「聆聽」「複製」「Google 搜索」；該框沒有文字時三個都隱藏；圖示鈕邊長 32px。三個鈕作用在所在框的文字。
+- 複製：文字放進剪貼簿，複製鈕上方顯示「已複製」氣泡 3 秒。
+- Google 搜索：以預設瀏覽器開啟 https://www.google.com/search?q={文字}，文字經網址編碼。
+- 聆聽：按下後偵測該框文字的語言；Windows 有該語言語音時以該語音唸出（中文需語言與地區都相同，其他語言比對語言），其餘以 OpenAI 語音播放；語言偵測失敗（含未設定 Google API key）時直接用 OpenAI 語音。語言偵測與 OpenAI 請求在背景執行。
+- 播放中再按聆聽：停止目前的播放並從頭播放；按另一個框的聆聽時停止目前的播放並播放新的。
+- 聆聽失敗時面板底部紅底顯示「聆聽失敗：{原因}」4 秒；原因為連線失敗、請求失敗、HTTP {狀態碼}：{伺服器訊息}、HTTP {狀態碼}，或播放元件回報的錯誤。
+- 拼音：翻譯成功後，以 uroman 把該次送出的原文轉成拉丁字母，顯示在送出翻譯那一頁的原文框內：原文文字下方一條灰色虛線，虛線下方為灰色拼音（唯讀、自動換行）。拼音與原文相同時不顯示。拼音區高度上限 96px，超出時捲動。
+- 有拼音時原文輸入的高度隨原文內容，原文超出時捲動；沒有拼音時原文輸入佔滿原文框。點原文框內留白處時焦點進入原文輸入。
+- 翻譯失敗時拼音維持前一次的內容。uroman 轉換失敗時翻譯照常顯示，拼音為空，失敗原因寫入 debug.log。
+
 ### OCR 頁
 
 - OCR 頁的辨識預設由 Surya 執行：每次截圖啟動 llama-server、辨識完關閉，啟動逾時 30 秒，llama-server 在就緒前結束時顯示「llama-server 啟動失敗（退出碼 N）」；Surya 失敗時依序改用 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small，切換時紅底 4 秒顯示「OCR 改用 {引擎}：{原因}」，本次執行留在備用引擎。
@@ -200,9 +218,10 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 有選九宮格時截取所選格子的外框矩形；九宮格未選時截取下拉清單的區域；在下拉清單選區域時清空九宮格選取。
 - 按「截圖」：面板立即隱藏，60ms 後截圖，面板立即顯示並取回前景；隱藏與顯示回來後 500ms 內面板不收合。截圖、框選與辨識進行中「截圖」「自訂框選」兩鈕停用。
 - 截圖 2 秒內未取得畫面時重置截圖並顯示「OCR 失敗：截圖逾時」；截圖或辨識失敗以「OCR 失敗：{原因}」紅底訊息顯示 4 秒。
-- 辨識結果一行一個文字區塊，依 OCR 引擎輸出順序以換行串成原文，填入上方原文框並自動翻譯；下方為譯文。Surya 的文字區塊去掉 html 標籤並合併空白。
+- 辨識結果一行一個文字區塊，依 OCR 引擎輸出順序以換行串成原文，填入上方原文框並自動翻譯；下方為譯文。Surya 的文字區塊先移除 class 為 img-desc 的段落，再去掉 html 標籤並合併空白。
 - 辨識結果為 0 個文字區塊時原文框清空，不送出翻譯，不顯示訊息。
 - 原文可修改，按 Enter 或翻譯鈕重新翻譯，Shift+Enter 換行。
+- 原文框、譯文框、「清除」鈕、圖示鈕、聆聽、拼音與文字翻譯頁相同；「清除」只清 OCR 頁；拼音為整段原文的拼音，換行同原文。
 - 兩頁一次只翻一筆：翻譯進行中兩頁翻譯鈕停用；辨識完成時若有翻譯進行中，該筆回來後自動送出 OCR 翻譯。
 - 畫面上出現任何語言都要自動辨識正確，使用者不手動選語言或換模型。
 
@@ -283,6 +302,10 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
+- 聆聽、拼音、圖示鈕、清除鈕、OCR 圖片描述移除（未提交，比對基準 0befc4b）：Windows 手動測試、提交、code-review（Standards、Spec）。
+- 聆聽的 OpenAI 語音改用 gpt-realtime-2.1-mini，期限 2027-01-06。
+- 以 debug.log 的翻譯記錄與 last-capture.png 查 OCR 頁「原文有、譯文未出現」與「部分英文行未讀出」。
+- 移除 debug.log 的暫時記錄與 last-capture.png 存檔。
 - 螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項的 code-review（Standards、Spec，比對基準 a2f965f）。
 - 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
@@ -297,3 +320,10 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - config.json 內容損毀時的啟動方式。
 - Acrylic 開啟失敗時，不透明底的圓角裁切。
 - 偶發的面板不透明底（Acrylic 回報成功時）的原因；debug.log 保留 acrylic 結果紀錄。
+- 長原文時，拼音被原文框圖示鈕蓋住的處理。
+- OpenAI 相容與 Ollama 翻譯請求的 temperature 與 system 訊息。
+- Surya 整頁辨識時以一般段落輸出的畫面描述的處理方式。
+- gpt-realtime-2.1-mini 的接法：/audio/speech 是否可用；Realtime WebSocket 的 voice、音訊格式、讓模型逐字唸出文字的方式。
+- 英文的 KK 音標或 IPA。
+- 拼音是否改用 Google romanizeText。
+- 提交的範圍與時機。

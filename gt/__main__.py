@@ -3,12 +3,14 @@
 import signal
 import sys
 import threading
+import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
 
-from gt import capture, config, ocr, platform_win, translate
+from gt import capture, config, debuglog, ocr, platform_win, romanize, speech, translate
 from gt.panel_state import Command, Event, PanelStateMachine, State
+from gt.speaker import Speaker
 from gt.ui import EXPAND_MS, HostWindow, Panel, RegionSelector, Strip, apply_font
 
 HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全展開共 1.5 秒
@@ -21,9 +23,10 @@ CAPTURE_GUARD_MS = 500                          # 面板顯示回來後，遲到
 
 
 class _Relay(QObject):
-    """把背景執行緒的翻譯與辨識結果以 queued signal 送回 UI 執行緒。"""
+    """把背景執行緒的翻譯、辨識與聆聽結果以 queued signal 送回 UI 執行緒。"""
 
-    done = Signal(object)
+    done = Signal(object, str)                   # 翻譯結果、原文的拼音
+    listen_ready = Signal(int, str, object)      # 聆聽序號、文字、speech.Speech
     ocr_done = Signal(object)                    # 文字區塊清單，或辨識失敗的例外
     ocr_switch = Signal(str, str)                # OCR 改用的引擎名與原因
 
@@ -53,9 +56,56 @@ def main():
         src, dst = cfg["source_lang"], cfg["target_lang"]
         # 只有 Google 支援一行一個 q；其他引擎照舊整段送出
         kwargs = {"by_line": True} if by_line and isinstance(translator, translate.GoogleTranslator) else {}
-        # 網路請求在背景執行緒，不卡 UI
-        threading.Thread(target=lambda: relay.done.emit(translator.translate(text, src, dst, **kwargs)),
+        # 暫時 debug：翻譯送出時的引擎、是否一行一個 q、原文行數與字數
+        debuglog.log(f"翻譯送出 引擎={translator.name} 一行一個q={bool(kwargs)} "
+                     f"原文行數={len(text.splitlines())} 原文字數={len(text)}")
+        start = time.monotonic()
+        def run():
+            result = translator.translate(text, src, dst, **kwargs)
+            roman = ""
+            if result.error is None:
+                try:
+                    roman = romanize.romanize(text)      # 第一次使用時載入 uroman 資料
+                except Exception as e:                   # 例如未安裝 uroman：翻譯結果照常送回
+                    debuglog.log(f"拼音失敗：{e!r}")
+            # 暫時 debug：翻譯回來時的失敗原因或譯文字數、耗時、拼音字數
+            debuglog.log("翻譯回來 "
+                         + (f"譯文字數={len(result.text)}" if result.error is None else f"失敗原因={result.error}")
+                         + f" 耗時={time.monotonic() - start:.2f}s 拼音字數={len(roman)}")
+            relay.done.emit(result, roman)
+
+        threading.Thread(target=run, daemon=True).start()   # 網路請求在背景執行緒，不卡 UI
+
+    speaker = Speaker()
+    listening = {"seq": 0}                        # 最新一次聆聽的序號，較舊的結果不播放
+
+    def on_listen(text):
+        listening["seq"] += 1
+        seq = listening["seq"]
+        speaker.stop()                               # 播放中再按：停止並從頭播放
+        locales = speaker.locales()
+        # 語言偵測與 OpenAI 語音在背景執行緒，不卡 UI
+        threading.Thread(target=lambda: relay.listen_ready.emit(seq, text, speech.prepare(text, cfg, locales)),
                          daemon=True).start()
+
+    def on_listen_ready(seq, text, r):
+        if seq != listening["seq"]:
+            return
+        if r.error is not None:
+            panel._show_status(f"聆聽失敗：{r.error}")
+        elif r.locale is not None:
+            speaker.say(text, r.locale)
+        else:
+            speaker.play(r.audio)
+
+    def on_listen_stop():
+        listening["seq"] += 1                        # 尚未回來的聆聽結果不再播放
+        speaker.stop()
+
+    relay.listen_ready.connect(on_listen_ready)
+    speaker.failed.connect(lambda reason: panel._show_status(f"聆聽失敗：{reason}"))
+    panel.listen_requested.connect(on_listen)
+    panel.listen_stop_requested.connect(on_listen_stop)
 
     def on_setting(field, value):
         if value != cfg[field]:
@@ -87,6 +137,7 @@ def main():
         if error is not None:
             panel.show_ocr_error(str(error) or type(error).__name__)
             return
+        debuglog.log(f"截圖 region={region} cells={sorted(cells)} shape={image.shape}")    # 暫時 debug：截圖區域與圖片尺寸
         start_ocr(image)
 
     selector = {"window": None}                   # 自訂框選視窗，框選期間保留參照
@@ -122,10 +173,18 @@ def main():
             return
         h, fw = frame.shape[:2]                      # 邏輯座標換算成截圖實體像素
         x1, y1, x2, y2 = capture.scale_box(box, w.width(), w.height(), fw, h)
+        # 暫時 debug：自訂框的像素框與圖片尺寸
+        debuglog.log(f"自訂框選 像素框={(x1, y1, x2, y2)} shape={frame[y1:y2, x1:x2].shape}")
         start_ocr(frame[y1:y2, x1:x2])
 
     def start_ocr(image):
         def run():
+            try:                                     # 暫時 debug：送辨識的圖片存成 last-capture.png，每次覆寫
+                from PIL import Image
+                Image.fromarray(image[:, :, ::-1].copy()).save(
+                    config.config_path().with_name("last-capture.png"))    # BGR → RGB
+            except Exception as e:
+                debuglog.log(f"截圖存檔失敗：{e!r}")
             try:
                 relay.ocr_done.emit(ocr_engine.recognize(image))
             except Exception as e:

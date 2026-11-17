@@ -5,12 +5,13 @@
 側滑也照 glass.py：視窗寬度從 0 變到全寬，內容固定全寬、靠左貼齊，看起來是滑出來。
 """
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QHBoxLayout, QLabel, QLineEdit,
-                               QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, QVariantAnimation, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from gt import debuglog, platform_win
+from gt.search import google_search_url
 from gt.translate import ENGINES
 
 # 視覺規格（README「視覺規格」）
@@ -39,6 +40,11 @@ SELECT_STROKE = QColor(255, 255, 255, 220)       # 自訂框選：選取框邊�
 HANDLE_HIT = 6                                   # 自訂框選：四角與四邊的拖曳判定範圍（px）
 HANDLE_CORNER = 8                                # 自訂框選：四角控制點方形邊長（px）
 HANDLE_EDGE = (12, 6)                            # 自訂框選：四邊中點控制點長方形長、寬（px）
+LISTEN_MARGIN = 6                                # 圖示鈕與文字框右下角的距離、圖示鈕之間的距離（px）
+ROMAN_MAX_H = 96                                 # 拼音區高度上限（px），超出時捲動
+ROMAN_PAD = 6                                    # 拼音區虛線與拼音、拼音與框底的距離（px）
+COPIED_MS = 3000                                 # 「已複製」氣泡顯示多久
+WIDGET_MAX_H = 16777215                          # Qt 元件高度上限的預設值（QWIDGETSIZE_MAX），即不限高度
 
 # 文字翻譯頁的 QSS（README「視覺規格」：半透明底、輸入欄位圓角、按鈕膠囊）
 PAGE_QSS = f"""
@@ -74,6 +80,19 @@ QLabel#status {{
     border-radius: {FIELD_RADIUS}px; padding: 6px 10px;
 }}
 QLabel#status[ok="true"] {{ color: #d7ffdf; background: rgba(20, 110, 50, 0.55); }}
+QPushButton#icon {{ padding: 0; min-width: {CTL_H - 2}px; max-width: {CTL_H - 2}px; }}  /* 圓形圖示鈕 */
+QFrame#sourceBox {{  /* 原文框：外觀同 QPlainTextEdit，框內是原文輸入與拼音 */
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px;
+}}
+QFrame#sourceBox[focused="true"] {{ border-color: rgba(255, 255, 255, 0.40); }}
+QFrame#sourceBox QPlainTextEdit {{ background: transparent; border: none; }}
+QTextEdit#roman {{  /* 上緣的灰色虛線隔開原文與拼音 */
+    color: rgba(242, 242, 245, 0.55); background: transparent;
+    border: none; border-top: 1px dashed rgba(242, 242, 245, 0.35);
+    margin: 0 {FIELD_PAD_X}px; padding: {ROMAN_PAD}px 0;
+}}
+QLabel#bubble {{ background: rgba(32, 32, 40, 0.80); border-radius: {FIELD_RADIUS}px; padding: 6px 10px; }}  /* 深色浮層，同 POPUP_BG */
 """
 
 
@@ -165,6 +184,135 @@ class SourceEdit(QPlainTextEdit):
             self.submitted.emit()
             return
         super().keyPressEvent(e)
+
+
+class TextButtons(QWidget):
+    """文字框右下角由左到右的聆聽、複製、Google 搜索三個圖示鈕，原文框與譯文框共用；
+    疊在框 box 上，跟著框與框內文字輸入 edit 的大小移動；edit 為空時隱藏。
+    聆聽：送出 listen_requested(edit 的文字)。複製：edit 的文字放進剪貼簿，複製鈕上方顯示「已複製」氣泡 COPIED_MS。
+    Google 搜索：以預設瀏覽器搜尋 edit 的文字。"""
+
+    listen_requested = Signal(str)               # 要聆聽的文字
+
+    def __init__(self, box, edit):
+        super().__init__(box)
+        self.box = box
+        self.edit = edit
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(LISTEN_MARGIN)
+        self.listen_btn, self.copy_btn, self.search_btn = (
+            QPushButton(icon) for icon in ("\U0001F50A", "\u29C9", "\U0001F50D"))
+        for b, tip in ((self.listen_btn, "聆聽"), (self.copy_btn, "複製"), (self.search_btn, "Google 搜索")):
+            b.setObjectName("icon")
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.NoFocus)                # 不搶走輸入焦點
+            b.setFixedSize(CTL_H, CTL_H)
+            row.addWidget(b)
+        self.adjustSize()
+        self.bubble = QLabel("已複製", box)             # 疊在框上層的子元件，不成為獨立視窗
+        self.bubble.setObjectName("bubble")
+        self.bubble.hide()
+        self._bubble_timer = QTimer(self)
+        self._bubble_timer.setSingleShot(True)
+        self._bubble_timer.setInterval(COPIED_MS)
+        self._bubble_timer.timeout.connect(self.bubble.hide)
+        self.listen_btn.clicked.connect(lambda: self.listen_requested.emit(edit.toPlainText()))
+        self.copy_btn.clicked.connect(self._copy)
+        self.search_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(google_search_url(edit.toPlainText()))))
+        box.installEventFilter(self)
+        edit.viewport().installEventFilter(self)
+        edit.textChanged.connect(self._sync)
+        self._sync()
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.Resize:                   # 框或文字區大小改變（含捲軸出現）：貼回右下角
+            g = self.edit.viewport().geometry()         # 與框邊的距離同文字區與 edit 邊緣的距離
+            o = self.edit.mapTo(self.box, QPoint(0, 0))
+            self.move(o.x() + g.x() + g.width() - self.width() - LISTEN_MARGIN,
+                      self.box.height() - o.y() - g.y() - self.height() - LISTEN_MARGIN)
+        return False
+
+    def _sync(self):
+        self.setVisible(bool(self.edit.toPlainText().strip()))
+
+    def _copy(self):
+        QGuiApplication.clipboard().setText(self.edit.toPlainText())
+        self.bubble.adjustSize()
+        pos = self.copy_btn.mapTo(self.box, QPoint(0, 0))       # 氣泡置中在複製鈕上方
+        self.bubble.move(pos.x() + (self.copy_btn.width() - self.bubble.width()) // 2,
+                         pos.y() - self.bubble.height() - LISTEN_MARGIN)
+        self.bubble.show()
+        self.bubble.raise_()
+        self._bubble_timer.start()
+
+
+class RomanView(QTextEdit):
+    """拼音區：唯讀、自動換行、灰色文字，上緣一條灰色虛線；高度隨內容，最高 ROMAN_MAX_H，超出時捲動；
+    沒有拼音時連同虛線隱藏。"""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("roman")
+        self.setReadOnly(True)
+        self.document().documentLayout().documentSizeChanged.connect(self._fit)
+        self.hide()
+
+    def _fit(self, size):
+        self.setFixedHeight(min(int(size.height()) + 2 * ROMAN_PAD + 1, ROMAN_MAX_H))   # QSS：上下內距與 1px 虛線
+
+    def set_roman(self, text):
+        self.setPlainText(text)
+        self.setVisible(bool(text))
+
+
+class SourceBox(QFrame):
+    """原文框：同一個框（邊框、底色、圓角）內由上到下是原文輸入 edit、拼音區 roman（上緣為虛線），
+    右下角疊聆聽、複製、Google 搜索三個圖示鈕 btns；edit 取得焦點時框的邊框變亮。
+    有拼音時 edit 的高度隨原文內容，虛線與拼音緊接在原文下方，其下留白，原文超出時 edit 捲動；
+    沒有拼音時 edit 佔滿整個框。點框內留白處時焦點進 edit。"""
+
+    def __init__(self, placeholder):
+        super().__init__()
+        self.setObjectName("sourceBox")
+        self.edit = SourceEdit()
+        self.edit.setPlaceholderText(placeholder)
+        self.roman = RomanView()
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        col.addWidget(self.edit, 1)
+        col.addWidget(self.roman)
+        col.addStretch()                                # 有拼音時拼音下方的留白
+        self.btns = TextButtons(self, self.edit)
+        self.edit.installEventFilter(self)
+        self.roman.installEventFilter(self)
+        self.edit.document().documentLayout().documentSizeChanged.connect(self._fit)
+
+    def eventFilter(self, obj, e):
+        if obj is self.edit and e.type() in (QEvent.FocusIn, QEvent.FocusOut):
+            self.setProperty("focused", e.type() == QEvent.FocusIn)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        if obj is self.roman and e.type() in (QEvent.ShowToParent, QEvent.HideToParent):
+            self._fit()
+        return False
+
+    def mousePressEvent(self, e):
+        self.edit.setFocus()
+
+    def _fit(self):
+        """有拼音時 edit 最高到原文內容的高度，沒有拼音時不限高度。"""
+        if self.roman.isHidden():
+            self.edit.setMaximumHeight(WIDGET_MAX_H)
+            return
+        doc, m = self.edit.document(), self.edit.contentsMargins()      # m：QSS 內距
+        h, block = 2 * doc.documentMargin() + m.top() + m.bottom(), doc.begin()
+        while block.isValid():
+            h += doc.documentLayout().blockBoundingRect(block).height()
+            block = block.next()
+        self.edit.setMaximumHeight(int(h))
 
 
 class GridPopup(QWidget):
@@ -358,6 +506,8 @@ class Panel(QWidget):
     custom_capture_requested = Signal()          # OCR 頁「自訂框選」
     screen_changed = Signal(object)              # 設定頁選的 QScreen
     animation_changed = Signal(bool)             # 設定頁的動畫開關
+    listen_requested = Signal(str)               # 要聆聽的文字
+    listen_stop_requested = Signal()             # 停止聆聽（清除鈕）
 
     def __init__(self, screen, cfg):
         super().__init__(None, TOP_FLAGS)
@@ -389,16 +539,23 @@ class Panel(QWidget):
         text_box = QVBoxLayout(text_page)
         text_box.setContentsMargins(0, 0, 0, 0)
         langs = QLabel("自動偵測 → 繁體中文")
-        self.input = SourceEdit()                       # 文字翻譯頁上方：原文
-        self.input.setPlaceholderText("輸入原文，Enter 翻譯，Shift+Enter 換行")
+        self.input_box = SourceBox("輸入原文，Enter 翻譯，Shift+Enter 換行")    # 文字翻譯頁上方：原文框
+        self.input = self.input_box.edit                # 原文
+        self.listen_btn = self.input_box.btns.listen_btn    # 原文框右下角：聆聽、複製、Google 搜索
+        self.input_box.btns.listen_requested.connect(lambda text: self._listen(0, text))
+        self.roman = self.input_box.roman               # 原文框內、原文下方：該次送出原文的拼音
+        self.clear_btn = QPushButton("清除")             # 「翻譯」鈕左邊：清空這一頁
         self.translate_btn = QPushButton("翻譯")
         row = QHBoxLayout()
         row.addWidget(langs, 1)
+        row.addWidget(self.clear_btn)
         row.addWidget(self.translate_btn)
         self.output = QPlainTextEdit()                  # 文字翻譯頁下方：譯文
         self.output.setReadOnly(True)
         self.output.setFocusPolicy(Qt.ClickFocus)
-        text_box.addWidget(self.input, 1)
+        self.output_btns = TextButtons(self.output, self.output)    # 譯文框右下角：聆聽、複製、Google 搜索
+        self.output_btns.listen_requested.connect(lambda text: self._listen(0, text))
+        text_box.addWidget(self.input_box, 1)
         text_box.addLayout(row)
         text_box.addWidget(self.output, 1)
         self.stack.addWidget(text_page)
@@ -478,12 +635,15 @@ class Panel(QWidget):
         box.addWidget(self.status)
         self.input.submitted.connect(lambda: self._submit(self.input, self.output, False))
         self.translate_btn.clicked.connect(lambda: self._submit(self.input, self.output, False))
+        self.clear_btn.clicked.connect(self._clear_text)
+        self.ocr_clear_btn.clicked.connect(self._clear_ocr)
         self.ocr_input.submitted.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
         self.ocr_translate_btn.clicked.connect(lambda: self._submit(self.ocr_input, self.ocr_output, True))
         self.capture_btn.clicked.connect(self._capture)
         self.custom_btn.clicked.connect(self._custom_capture)
         self._target_output = self.output                # 翻譯結果要顯示的譯文框
         self._ocr_pending = False                       # 辨識完成時有翻譯進行中，OCR 翻譯待送出
+        self._listen_page = None                        # 最近一次聆聽來自哪一頁（分頁編號）
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
@@ -492,7 +652,7 @@ class Panel(QWidget):
         self._ensure_acrylic()                          # 啟動時先套 Acrylic，第一次展開不再等待
 
     def _build_ocr_page(self):
-        """OCR 頁：截圖區域選擇列、截圖按鈕；上方原文（可修改後重新翻譯），下方譯文。"""
+        """OCR 頁：截圖區域選擇列、截圖按鈕；上方原文（可修改後重新翻譯）與拼音，下方譯文。"""
         page = QWidget()
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 0, 0, 0)
@@ -511,17 +671,24 @@ class Panel(QWidget):
         region_row.addStretch(1)
         region_row.addWidget(self.custom_btn)
         region_row.addWidget(self.capture_btn)         # 截圖鈕在最右側，自訂框選在它左邊
-        self.ocr_input = SourceEdit()                   # OCR 頁上方：辨識出的原文
-        self.ocr_input.setPlaceholderText("截圖後顯示辨識出的原文，可修改後 Enter 重新翻譯")
+        self.ocr_input_box = SourceBox("截圖後顯示辨識出的原文，可修改後 Enter 重新翻譯")   # OCR 頁上方：原文框
+        self.ocr_input = self.ocr_input_box.edit        # 辨識出的原文
+        self.ocr_listen_btn = self.ocr_input_box.btns.listen_btn    # 原文框右下角：聆聽、複製、Google 搜索
+        self.ocr_input_box.btns.listen_requested.connect(lambda text: self._listen(1, text))
+        self.ocr_roman = self.ocr_input_box.roman       # 原文框內、原文下方：該次送出原文的拼音
+        self.ocr_clear_btn = QPushButton("清除")         # 「翻譯」鈕左邊：清空這一頁
         self.ocr_translate_btn = QPushButton("翻譯")
         row = QHBoxLayout()
         row.addWidget(QLabel("自動偵測 → 繁體中文"), 1)
+        row.addWidget(self.ocr_clear_btn)
         row.addWidget(self.ocr_translate_btn)
         self.ocr_output = QPlainTextEdit()              # OCR 頁下方：譯文
         self.ocr_output.setReadOnly(True)
         self.ocr_output.setFocusPolicy(Qt.ClickFocus)
+        self.ocr_output_btns = TextButtons(self.ocr_output, self.ocr_output)    # 譯文框右下角：聆聽、複製、Google 搜索
+        self.ocr_output_btns.listen_requested.connect(lambda text: self._listen(1, text))
         col.addLayout(region_row)
-        col.addWidget(self.ocr_input, 1)
+        col.addWidget(self.ocr_input_box, 1)
         col.addLayout(row)
         col.addWidget(self.ocr_output, 1)
         return page
@@ -571,6 +738,9 @@ class Panel(QWidget):
 
     def show_ocr_result(self, blocks):
         """辨識完成（UI 執行緒）：文字區塊以換行串成原文，自動翻譯。"""
+        # 暫時 debug：辨識結果送到面板時的分頁、翻譯狀態、文字區塊數，追查截圖後沒有文字顯示
+        debuglog.log(f"OCR 結果送到面板 分頁={self.stack.currentIndex()} "
+                     f"翻譯進行中={not self.translate_btn.isEnabled()} 文字區塊數={len(blocks)}")
         self.set_capture_enabled(True)
         self.ocr_input.setPlainText("\n".join(blocks))
         if not self.translate_btn.isEnabled():          # 前一筆翻譯回來後再送出
@@ -579,6 +749,9 @@ class Panel(QWidget):
         self._submit(self.ocr_input, self.ocr_output, True)
 
     def show_ocr_error(self, reason):
+        # 暫時 debug：辨識失敗送到面板時的分頁、翻譯狀態、失敗原因
+        debuglog.log(f"OCR 失敗送到面板 分頁={self.stack.currentIndex()} "
+                     f"翻譯進行中={not self.translate_btn.isEnabled()} 失敗原因={reason}")
         self.set_capture_enabled(True)
         self._show_status(f"OCR 失敗：{reason}")
 
@@ -656,20 +829,54 @@ class Panel(QWidget):
         platform_win.bring_to_foreground(int(self.winId()))
         self.input.setFocus()
 
+    def _listen(self, page, text):
+        """page 頁（分頁編號）按了聆聽：記下來源頁，送出 listen_requested。"""
+        self._listen_page = page
+        self.listen_requested.emit(text)
+
+    def _clear(self, page, edit, output):
+        """清除鈕：清空 page 頁（分頁編號）的原文框 edit 與譯文框 output；
+        最近一次聆聽來自這一頁時送出 listen_stop_requested。"""
+        edit.clear()
+        output.clear()
+        if self._listen_page == page:
+            self.listen_stop_requested.emit()
+
+    def _clear_text(self):
+        """文字翻譯頁的清除鈕：清空原文、譯文與拼音。"""
+        self._clear(0, self.input, self.output)
+        self.roman.set_roman("")
+
+    def _clear_ocr(self):
+        """OCR 頁的清除鈕：清空原文、譯文與拼音。"""
+        self._clear(1, self.ocr_input, self.ocr_output)
+        self.ocr_roman.set_roman("")
+
     def _submit(self, edit, output, by_line):
         text = edit.toPlainText().strip()
         if text and self.translate_btn.isEnabled():     # 翻譯中不重複送出（兩頁一次只翻一筆）
             self.translate_btn.setEnabled(False)
             self.ocr_translate_btn.setEnabled(False)
+            self.clear_btn.setEnabled(False)            # 翻譯進行中不清除
+            self.ocr_clear_btn.setEnabled(False)
             self._target_output = output
             self.translate_requested.emit(text, by_line)
 
-    def show_result(self, result):
-        """翻譯完成（UI 執行緒）：成功顯示譯文，失敗在底部短暫顯示引擎與原因。"""
+    def show_result(self, result, roman=""):
+        """翻譯完成（UI 執行緒）：成功顯示譯文與原文的拼音 roman（空字串時隱藏拼音區），
+        失敗在底部短暫顯示引擎與原因。"""
+        # 暫時 debug：翻譯結果送到面板時的目標分頁、失敗原因或譯文字數、是否有待送出的 OCR 翻譯
+        debuglog.log(f"翻譯結果送到面板 目標分頁={0 if self._target_output is self.output else 1} "
+                     + (f"譯文字數={len(result.text)}" if result.error is None else f"失敗原因={result.error}")
+                     + f" 待送出OCR翻譯={self._ocr_pending}")
         self.translate_btn.setEnabled(True)
         self.ocr_translate_btn.setEnabled(True)
+        self.clear_btn.setEnabled(True)
+        self.ocr_clear_btn.setEnabled(True)
         if result.error is None:
             self._target_output.setPlainText(result.text)
+            # 拼音顯示在送出翻譯的那一頁
+            (self.roman if self._target_output is self.output else self.ocr_roman).set_roman(roman)
         else:
             self._show_status(f"{result.engine} 翻譯失敗：{result.error}")
         if self._ocr_pending:
