@@ -122,6 +122,11 @@ def main():
     def end_capture():
         capturing["active"] = False
 
+    def show_panel_back():
+        """截圖後顯示回面板，CAPTURE_GUARD_MS 內不收合。"""
+        panel.show_now()
+        QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+
     def on_capture(region, cells):
         capturing["active"] = True
         panel.hide_now()
@@ -132,8 +137,7 @@ def main():
             image, error = capture.grab(region, cells, platform_win.monitor_of(int(strip.winId()))), None
         except Exception as e:
             image, error = None, e
-        panel.show_now()
-        QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+        show_panel_back()
         if error is not None:
             panel.show_ocr_error(str(error) or type(error).__name__)
             return
@@ -152,8 +156,7 @@ def main():
         try:
             frame = capture.grab("full", set(), platform_win.monitor_of(int(strip.winId())))
         except Exception as e:
-            panel.show_now()
-            QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+            show_panel_back()
             panel.show_ocr_error(str(e) or type(e).__name__)
             return
         w = RegionSelector(current["screen"], frame)
@@ -166,8 +169,7 @@ def main():
         """確定：裁切框內區域送進 OCR；取消：只顯示回面板。"""
         selector["window"] = None
         w.deleteLater()
-        panel.show_now()
-        QTimer.singleShot(CAPTURE_GUARD_MS, end_capture)
+        show_panel_back()
         if box is None:
             panel.set_capture_enabled(True)
             return
