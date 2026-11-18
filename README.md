@@ -70,8 +70,6 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 | 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
 | 讀 llama-server log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\llama-server.log" |
 
-debug.log 的暫時記錄：Acrylic 開啟結果；Surya 每個區塊的標籤、是否再辨識、原始輸出；每次辨識的引擎、文字區塊數、耗時、失敗原因；截圖區域與圖片尺寸；辨識結果送到面板時的分頁與翻譯狀態；翻譯送出、翻譯回來、翻譯結果送到面板；OpenAI 相容回應的狀態碼與完整內容。每次送辨識的圖片存成 %LOCALAPPDATA%\Gamersive-Translate\last-capture.png，每次覆寫。
-
 ## 產品規格
 
 ### 技術選型
@@ -306,8 +304,7 @@ debug.log 的暫時記錄：Acrylic 開啟結果；Surya 每個區塊的標籤�
 
 - 聆聽、拼音、圖示鈕、清除鈕、OCR 文字清理、OpenAI 相容的模型與提示調整的 code-review（Standards、Spec，比對基準 0befc4b）。
 - 聆聽的 OpenAI 語音改用 gpt-realtime-2.1-mini，期限 2027-01-06。
-- 以 debug.log 與 last-capture.png 查 OCR 頁「中英混合畫面有幾行英文未讀出」。
-- 移除 debug.log 的暫時記錄與 last-capture.png 存檔。
+- 查 OCR 頁「中英混合畫面有幾行英文未讀出」。
 - 螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項的 code-review（Standards、Spec，比對基準 a2f965f）。
 - 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
@@ -321,7 +318,7 @@ debug.log 的暫時記錄：Acrylic 開啟結果；Surya 每個區塊的標籤�
 - RapidOCR 的 [INFO] 日誌是否關閉（RapidOCR 設定 Global.log_level）。
 - config.json 內容損毀時的啟動方式。
 - Acrylic 開啟失敗時，不透明底的圓角裁切。
-- 偶發的面板不透明底（Acrylic 回報成功時）的原因；debug.log 保留 acrylic 結果紀錄。
+- 偶發的面板不透明底（Acrylic 回報成功時）的原因。
 - 長原文時，拼音被原文框圖示鈕蓋住的處理。
 - Ollama 的提示與逾時。
 - llama-server 啟動或辨識時記憶體配置失敗（bad allocation、GGML_ASSERT(ctx->mem_buffer != NULL)、failed to allocate CUDA_Host buffer、Python MemoryError）的原因。
