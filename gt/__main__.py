@@ -12,8 +12,8 @@ from gt.panel_state import Command, Event, PanelStateMachine, State
 from gt.speaker import Speaker
 from gt.ui import EXPAND_MS, HostWindow, Panel, RegionSelector, Strip, apply_font
 
-HOVER_DELAY_MS = 1500 - EXPAND_MS               # 從進入邊條到面板完全展開共 1.5 秒
-HOVER_DELAY_NO_ANIM_MS = 1500                   # 動畫關閉：停留滿 1.5 秒立即展開
+HOVER_DELAY_MS = 1000 - EXPAND_MS               # 從進入邊條到面板完全展開共 1 秒
+HOVER_DELAY_NO_ANIM_MS = 1000                   # 動畫關閉：停留滿 1 秒立即展開
 # 按下 Alt+Tab 期間 explorer 暫時接手前景的視窗 class（實測，無官方文件）
 ALT_TAB_CLASSES = {"ForegroundStaging", "XamlExplorerHostIslandWindow"}
 HANDOFF_FALLBACK_MS = 1000                      # host 一直沒失去啟用時，最晚在這之後解除抑制
@@ -52,7 +52,7 @@ def main():
 
     def on_translate(text, by_line):
         translator = translate.make_translator(cfg)
-        src, dst = cfg["source_lang"], cfg["target_lang"]
+        src, dst = cfg["source_lang"], cfg["ocr_target_lang" if by_line else "target_lang"]   # by_line 即 OCR 頁
         # 只有 Google 支援一行一個 q；其他引擎照舊整段送出
         kwargs = {"by_line": True} if by_line and isinstance(translator, translate.GoogleTranslator) else {}
         def run():

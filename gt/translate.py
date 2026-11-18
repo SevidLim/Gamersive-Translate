@@ -17,7 +17,7 @@ from typing import Callable, NamedTuple
 
 
 AUTO = "auto"
-LANG_NAMES = {"zh-TW": "繁體中文"}                 # 語言代碼 → 語言名稱
+LANG_NAMES = {"zh-TW": "繁體中文", "en-US": "英文（美國）"}   # 語言代碼 → 語言名稱；也是目標語言選單的選項
 TIMEOUT_S = 10
 OPENAI_TIMEOUT_S = 60                               # OpenAI 相容的逾時，超過就中斷
 
@@ -52,6 +52,7 @@ class GoogleTranslator:
     name = "Google"
     URL = "https://translation.googleapis.com/language/translate/v2"
     MAX_Q = 128                                         # 一次請求的 q 陣列上限（官方文件）
+    CODES = {"en-US": "en"}                             # v2 的 /languages 沒有 en-US，英文只有 en
 
     def __init__(self, api_key, post=http_post):
         self.api_key = api_key
@@ -74,7 +75,7 @@ class GoogleTranslator:
         return Result(self.name, text="\n".join(parts))
 
     def _send(self, q, source, target, read_text):
-        payload = {"q": q, "target": target, "format": "text"}
+        payload = {"q": q, "target": self.CODES.get(target, target), "format": "text"}
         if source != AUTO:
             payload["source"] = source
         return _request(self.name, self.post, f"{self.URL}?{urllib.parse.urlencode({'key': self.api_key})}", payload, None,

@@ -1,7 +1,7 @@
 """面板狀態機：純邏輯，不依賴 Qt。
 
 handle(事件) 更新 state，回傳要執行的副作用指令清單。
-停留計時由呼叫端負責：滑鼠進入邊條時開始計時，離開時取消，滿 1.5 秒送 HOVER_TIMEOUT。
+停留計時由呼叫端負責：滑鼠進入邊條時開始計時，離開時取消，滿 1 秒送 HOVER_TIMEOUT。
 animated 為 False（動畫關閉）時展開與收合不播動畫，狀態直接成為 EXPANDED / COLLAPSED。
 """
 

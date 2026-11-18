@@ -11,7 +11,8 @@ DEFAULTS = {
     "config_version": 1,
     "google_api_key": "",
     "source_lang": "auto",                      # 自動偵測
-    "target_lang": "zh-TW",                     # 繁體中文
+    "target_lang": "zh-TW",                     # 文字翻譯頁的目標語言：繁體中文
+    "ocr_target_lang": "zh-TW",                 # OCR 頁的目標語言：繁體中文
     "engine": "google",
     "openai_base_url": "",
     "openai_api_key": "",

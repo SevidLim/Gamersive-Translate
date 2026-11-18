@@ -37,3 +37,9 @@ def test_font_defaults(tmp_path):
     cfg = config.load(tmp_path / "config.json")
     assert cfg["font_family"] == ""                 # 空字串＝QApplication 目前預設字型
     assert cfg["font_size"] == 14
+
+
+def test_target_lang_defaults_per_page(tmp_path):
+    cfg = config.load(tmp_path / "config.json")
+    assert cfg["target_lang"] == "zh-TW"
+    assert cfg["ocr_target_lang"] == "zh-TW"

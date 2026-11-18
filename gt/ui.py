@@ -6,13 +6,13 @@
 """
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen, QTextCursor
 from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from gt import platform_win
 from gt.search import google_search_url
-from gt.translate import ENGINES
+from gt.translate import ENGINES, LANG_NAMES
 
 # 視覺規格（README「視覺規格」）
 STRIP_W = 6
@@ -24,7 +24,7 @@ PANEL_RADIUS = 16                                # 面板圓角 16–18px
 PANEL_BG = QColor(20, 20, 26)                    # Acrylic 失敗時的不透明底
 PANEL_STROKE = QColor(255, 255, 255, 41)         # 細白邊（≈0.16）
 ACRYLIC_TINT = "14141A4D"                        # 深灰 0.30，疊在模糊上
-EXPAND_MS = 210                                  # 浮層展開 200–220ms
+EXPAND_MS = 250                                  # 面板展開
 COLLAPSE_MS = 150                                # 浮層收合 140–160ms
 FIELD_RADIUS = 11                                # 輸入欄位 10–12px
 CTL_H = 32                                       # 同一列控制項等高
@@ -175,7 +175,7 @@ class HostWindow(QWidget):
 
 
 class SourceEdit(QPlainTextEdit):
-    """原文輸入框：Enter 送出，Shift+Enter 換行。"""
+    """原文輸入框：Enter 送出，Shift+Enter 換行；第一行按上移到開頭，最後一行按下移到結尾。"""
 
     submitted = Signal()
 
@@ -183,6 +183,14 @@ class SourceEdit(QPlainTextEdit):
         if e.key() in (Qt.Key_Return, Qt.Key_Enter) and not e.modifiers() & Qt.ShiftModifier:
             self.submitted.emit()
             return
+        if e.key() in (Qt.Key_Up, Qt.Key_Down) and not e.modifiers():
+            cursor = self.textCursor()
+            up = e.key() == Qt.Key_Up
+            probe = QTextCursor(cursor)
+            if not probe.movePosition(QTextCursor.Up if up else QTextCursor.Down):   # 已在第一行／最後一行
+                cursor.movePosition(QTextCursor.Start if up else QTextCursor.End)
+                self.setTextCursor(cursor)
+                return
         super().keyPressEvent(e)
 
 
@@ -538,7 +546,8 @@ class Panel(QWidget):
         text_page = QWidget()
         text_box = QVBoxLayout(text_page)
         text_box.setContentsMargins(0, 0, 0, 0)
-        langs = QLabel("自動偵測 → 繁體中文")
+        self.target_box = self._target_box(cfg, "target_lang")     # 文字翻譯頁的目標語言
+        langs = self._lang_row(self.target_box)
         self.input_box = SourceBox("輸入原文，Enter 翻譯，Shift+Enter 換行")    # 文字翻譯頁上方：原文框
         self.input = self.input_box.edit                # 原文
         self.listen_btn = self.input_box.btns.listen_btn    # 原文框右下角：聆聽、複製、Google 搜索
@@ -547,7 +556,7 @@ class Panel(QWidget):
         self.clear_btn = QPushButton("清除")             # 「翻譯」鈕左邊：清空這一頁
         self.translate_btn = QPushButton("翻譯")
         row = QHBoxLayout()
-        row.addWidget(langs, 1)
+        row.addLayout(langs, 1)
         row.addWidget(self.clear_btn)
         row.addWidget(self.translate_btn)
         self.output = QPlainTextEdit()                  # 文字翻譯頁下方：譯文
@@ -559,6 +568,7 @@ class Panel(QWidget):
         text_box.addLayout(row)
         text_box.addWidget(self.output, 1)
         self.stack.addWidget(text_page)
+        self.ocr_target_box = self._target_box(cfg, "ocr_target_lang")   # OCR 頁的目標語言
         self.stack.addWidget(self._build_ocr_page())
         self.engine_box = QComboBox()                   # 分頁列下方：翻譯引擎；引擎欄位在設定頁
         for key, engine in ENGINES.items():
@@ -651,6 +661,23 @@ class Panel(QWidget):
         self._anim.finished.connect(self.animation_done)
         self._ensure_acrylic()                          # 啟動時先套 Acrylic，第一次展開不再等待
 
+    def _target_box(self, cfg, key):
+        """目標語言下拉選單：選項取自 LANG_NAMES，選了寫入 config 的 key。"""
+        box = QComboBox()
+        for code, name in LANG_NAMES.items():
+            box.addItem(name, code)
+        box.setCurrentIndex(max(0, box.findData(cfg[key])))
+        box.currentIndexChanged.connect(lambda _: self.setting_changed.emit(key, box.currentData()))
+        return box
+
+    def _lang_row(self, box):
+        """語言標示「自動偵測 →」加目標語言選單。"""
+        row = QHBoxLayout()
+        row.addWidget(QLabel("自動偵測 →"))
+        row.addWidget(box)
+        row.addStretch(1)
+        return row
+
     def _build_ocr_page(self):
         """OCR 頁：截圖區域選擇列、截圖按鈕；上方原文（可修改後重新翻譯）與拼音，下方譯文。"""
         page = QWidget()
@@ -679,7 +706,7 @@ class Panel(QWidget):
         self.ocr_clear_btn = QPushButton("清除")         # 「翻譯」鈕左邊：清空這一頁
         self.ocr_translate_btn = QPushButton("翻譯")
         row = QHBoxLayout()
-        row.addWidget(QLabel("自動偵測 → 繁體中文"), 1)
+        row.addLayout(self._lang_row(self.ocr_target_box), 1)
         row.addWidget(self.ocr_clear_btn)
         row.addWidget(self.ocr_translate_btn)
         self.ocr_output = QPlainTextEdit()              # OCR 頁下方：譯文

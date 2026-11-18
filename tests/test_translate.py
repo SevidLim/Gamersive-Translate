@@ -270,3 +270,15 @@ def test_google_and_ollama_engines_keep_http_post():
     assert ENGINES["google"].build(cfg).post is translate.http_post
     assert ENGINES["ollama"].build(cfg).post is translate.http_post
     assert translate.TIMEOUT_S == 10
+
+
+def test_google_sends_en_for_en_us():
+    post = FakePost(body=ok_body("Hello"))
+    GoogleTranslator("K", post).translate("你好", AUTO, "en-US")
+    assert post.calls[0][1]["target"] == "en"
+
+
+def test_openai_uses_en_us_name():
+    post = FakePost(body=openai_body("Hello"))
+    OpenAICompatibleTranslator("http://h/v1", "K", "m", post).translate("你好", AUTO, "en-US")
+    assert "翻成 en-US（英文（美國））" in post.calls[0][1]["messages"][0]["content"]
