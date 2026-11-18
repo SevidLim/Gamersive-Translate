@@ -174,6 +174,16 @@ class HostWindow(QWidget):
             self.deactivated.emit()
 
 
+def target_box(cfg, key, changed):
+    """目標語言下拉選單：選項取自 LANG_NAMES，初始值為 cfg[key]；選了呼叫 changed(key, 語言代碼)。"""
+    box = QComboBox()
+    for code, name in LANG_NAMES.items():
+        box.addItem(name, code)
+    box.setCurrentIndex(max(0, box.findData(cfg[key])))
+    box.currentIndexChanged.connect(lambda _: changed(key, box.currentData()))
+    return box
+
+
 class SourceEdit(QPlainTextEdit):
     """原文輸入框：Enter 送出，Shift+Enter 換行；第一行按上移到開頭，最後一行按下移到結尾。"""
 
@@ -546,7 +556,7 @@ class Panel(QWidget):
         text_page = QWidget()
         text_box = QVBoxLayout(text_page)
         text_box.setContentsMargins(0, 0, 0, 0)
-        self.target_box = self._target_box(cfg, "target_lang")     # 文字翻譯頁的目標語言
+        self.target_box = target_box(cfg, "target_lang", self.setting_changed.emit)     # 文字翻譯頁的目標語言
         langs = self._lang_row(self.target_box)
         self.input_box = SourceBox("輸入原文，Enter 翻譯，Shift+Enter 換行")    # 文字翻譯頁上方：原文框
         self.input = self.input_box.edit                # 原文
@@ -568,7 +578,7 @@ class Panel(QWidget):
         text_box.addLayout(row)
         text_box.addWidget(self.output, 1)
         self.stack.addWidget(text_page)
-        self.ocr_target_box = self._target_box(cfg, "ocr_target_lang")   # OCR 頁的目標語言
+        self.ocr_target_box = target_box(cfg, "ocr_target_lang", self.setting_changed.emit)   # OCR 頁的目標語言
         self.stack.addWidget(self._build_ocr_page())
         self.engine_box = QComboBox()                   # 分頁列下方：翻譯引擎；引擎欄位在設定頁
         for key, engine in ENGINES.items():
@@ -660,15 +670,6 @@ class Panel(QWidget):
         self._anim.valueChanged.connect(self._step)
         self._anim.finished.connect(self.animation_done)
         self._ensure_acrylic()                          # 啟動時先套 Acrylic，第一次展開不再等待
-
-    def _target_box(self, cfg, key):
-        """目標語言下拉選單：選項取自 LANG_NAMES，選了寫入 config 的 key。"""
-        box = QComboBox()
-        for code, name in LANG_NAMES.items():
-            box.addItem(name, code)
-        box.setCurrentIndex(max(0, box.findData(cfg[key])))
-        box.currentIndexChanged.connect(lambda _: self.setting_changed.emit(key, box.currentData()))
-        return box
 
     def _lang_row(self, box):
         """語言標示「自動偵測 →」加目標語言選單。"""

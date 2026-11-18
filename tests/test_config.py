@@ -43,3 +43,9 @@ def test_target_lang_defaults_per_page(tmp_path):
     cfg = config.load(tmp_path / "config.json")
     assert cfg["target_lang"] == "zh-TW"
     assert cfg["ocr_target_lang"] == "zh-TW"
+
+
+def test_target_for_each_page():
+    cfg = {"target_lang": "zh-TW", "ocr_target_lang": "en-US"}
+    assert config.target_for(cfg, False) == "zh-TW"
+    assert config.target_for(cfg, True) == "en-US"

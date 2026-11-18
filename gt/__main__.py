@@ -52,7 +52,7 @@ def main():
 
     def on_translate(text, by_line):
         translator = translate.make_translator(cfg)
-        src, dst = cfg["source_lang"], cfg["ocr_target_lang" if by_line else "target_lang"]   # by_line 即 OCR 頁
+        src, dst = cfg["source_lang"], config.target_for(cfg, by_line)   # by_line 即 OCR 頁
         # 只有 Google 支援一行一個 q；其他引擎照舊整段送出
         kwargs = {"by_line": True} if by_line and isinstance(translator, translate.GoogleTranslator) else {}
         def run():

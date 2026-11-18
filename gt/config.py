@@ -52,6 +52,11 @@ def save(cfg, path=None):
     os.replace(tmp, path)
 
 
+def target_for(cfg, ocr):
+    """翻譯的目標語言：OCR 頁用 ocr_target_lang，文字翻譯頁用 target_lang。"""
+    return cfg["ocr_target_lang" if ocr else "target_lang"]
+
+
 def pick_screen(screens, name, primary):
     """名稱為 name 的螢幕；不存在時回傳主螢幕 primary。"""
     return next((s for s in screens if s.name() == name), primary)
