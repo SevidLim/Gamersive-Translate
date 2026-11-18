@@ -12,6 +12,8 @@ Gamersive-Translate is an in-game translation tool for Windows. It stays at the 
   Strip and panel: hover over the strip at the right edge of the screen, or Alt+Tab to the app, to open the panel; click another window, Alt+Tab away, or press Esc to close it.
 - 文字翻譯頁：輸入原文，按 Enter 翻譯。
   Text page: type the source text and press Enter to translate.
+- 目標語言：文字翻譯頁與 OCR 頁各自選擇繁體中文或英文（美國）。
+  Target language: the text page and the OCR page each choose Traditional Chinese or English (US).
 - OCR 頁：擷取全畫面、上半部、下半部、九宮格選取的格子或自訂框選的範圍，辨識文字後自動翻譯。
   OCR page: capture the full screen, the top or bottom half, selected cells of a 3×3 grid, or a custom selection; the recognized text is translated automatically.
 - 拼音：翻譯後在原文下方顯示原文的拉丁字母拼音。
