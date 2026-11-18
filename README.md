@@ -302,10 +302,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 
 ## 待辦
 
-- 聆聽、拼音、圖示鈕、清除鈕、OCR 文字清理、OpenAI 相容的模型與提示調整的 code-review（Standards、Spec，比對基準 0befc4b）。
 - 聆聽的 OpenAI 語音改用 gpt-realtime-2.1-mini，期限 2027-01-06。
 - 查 OCR 頁「中英混合畫面有幾行英文未讀出」。
-- 螢幕清單即時更新、字型與大小、自訂框選、引擎選單位置四項的 code-review（Standards、Spec，比對基準 a2f965f）。
 - 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
 
 ## 未決
