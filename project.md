@@ -1,0 +1,319 @@
+# Gamersive-Translate 專案文件
+
+Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板翻譯文字或遊戲畫面，不打斷遊玩。
+
+## 專案資訊
+
+| 項目 | 內容 |
+|---|---|
+| 位置 | Claude Agents/projects/Gamersive-Translate |
+| GitHub | SevidLim/Gamersive-Translate（公開），remote 為 origin |
+| 分支 | master；原型在 prototype/ocr-bench |
+| Issue tracker | GitHub Issues，以 gh CLI 操作 |
+| 功能代號 | GT |
+
+## 主線進度（GT）
+
+| # | 步驟 | 狀態 |
+|---|---|---|
+| 0 | 設定 | done |
+| 1 | 追問對齊 | done |
+| 2 | 原型 | done |
+| 3 | 規格（to-spec） | done |
+| 4 | 拆票（to-tickets） | done |
+| 5 | 實作 | doing |
+
+步驟 2 的 handoff 不執行。
+
+步驟 5 實作規則：
+
+- 全部票在同一個對話進行，依票的相依順序逐張實作。
+- 派工前，主對話讀完 project.md 與程式規範，把全部實作細節列成一張清單，一次請使用者確認後才派工；project.md 已寫明的照 project.md 做，project.md 未寫的才問使用者。
+- 每張票交給一個 sub agent 實作。
+- sub agent 只寫檔；git 提交由使用者在 Windows 執行。
+- 實作直接在 master 分支進行。
+- 每張票的收尾順序：
+  1. sub agent 回報。
+  2. 主對話讀程式碼、重跑測試，確認與驗證。
+  3. 主對話列出使用者手動測試清單：執行指令、逐步操作、每步預期結果、需貼回的輸出（log、指令輸出、截圖）。
+  4. 使用者測試回報；有問題修正後回到第 2 步。
+  5. 主對話列出提交指令（commit 訊息含 `Closes #<票號>`），使用者執行。
+  6. code-review：Standards 與 Spec 兩個 sub agent 平行執行，比對基準為該票開始前的 commit，只回報硬性違規、會壞掉的程式與不符使用者核准內容之處；修正後的再審只看修正的 commit；主對話核對結果，需修正者修正後回到第 5 步。
+  7. project-update。
+- 對話用量達 60 萬 tokens 時：確認目前用量，判斷能否再完成一張票；不能則執行 project-update，並產出新對話開場指示（要讀的規範與專案檔清單、下一張票號與後續順序、本節步驟 5 實作規則）。
+- 用量來源：使用者每則訊息末尾的 `[usage-band]` 用量行。
+
+## 開發環境
+
+| 項目 | 內容 |
+|---|---|
+| 作業系統 | Windows 11 Home 25H2（build 26200.7840） |
+| 顯示卡 | NVIDIA GeForce RTX 4070，12GB VRAM，驅動 595.79，最高支援 CUDA 13.2 |
+| 螢幕 | 主螢幕 2560x1440 |
+| Python | 3.10.11 |
+| git | 2.49.0.windows.1 |
+| gh CLI | 2.103.3，已登入 SevidLim（keyring，https，scope：gist、read:org、repo、workflow） |
+| 專案虛擬環境 | 專案根目錄 .venv，套件依 requirements.txt：PySide6 6.12.0、pytest 9.2.0、dxcam 0.3.0、rapidocr 3.10.0、onnxruntime 1.23.2、opencv-python-headless 4.11.0.86、numpy 2.2.6、surya-ocr 0.23.0、torch 2.14.1（CPU）、torchvision 0.29.2、pillow 10.4.0、uroman 1.3.1.1 |
+
+執行方式（PowerShell，於專案根目錄）：
+
+| 動作 | 指令 |
+|---|---|
+| 啟動 | .venv\Scripts\python -m gt |
+| 安裝套件 | .venv\Scripts\python -m pip install -r requirements.txt |
+| 測試 | .venv\Scripts\python -m pytest |
+| 結束 | 終端機按 Ctrl+C；辨識中的 llama-server 一併關閉 |
+| 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
+| 讀 llama-server log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\llama-server.log" |
+
+## 產品規格
+
+### 技術選型
+
+| 項目 | 決定 |
+|---|---|
+| GUI 框架 | PySide6（Acrylic 毛玻璃、置頂無邊框視窗、側滑動畫） |
+| 視覺語彙 | 半透明毛玻璃與按鍵設計，規格見本文件「視覺規格」，以 QSS 實作 |
+| 截圖 | dxcam（DXGI Desktop Duplication），擷取工具所在螢幕 |
+| OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf，取自 Hugging Face 本機快取 C:\Users\User\.cache\huggingface\hub，HF_HUB_OFFLINE=1 不連網；整頁辨識後，surya 標為 Figure、Image、Diagram 的區塊改以 Text 標籤用 surya 區塊模式再辨識；llama-server 輸出附加寫入 %LOCALAPPDATA%\Gamersive-Translate\llama-server.log |
+| OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv5 mobile、PP-OCRv6 small；模型檔在 .venv\Lib\site-packages\rapidocr\models\ |
+| OCR 引擎選擇 | OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
+| 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
+| 聆聽 | 語言偵測用 Google Cloud Translation Basic（v2）的 detect，API key 為 google_api_key；Windows 有該語言語音時用 QtTextToSpeech；其餘用 OpenAI 語音：POST {openai_base_url}/audio/speech，Authorization: Bearer {openai_api_key}，model gpt-4o-mini-tts、voice alloy、mp3，以 QtMultimedia 播放 |
+| 拼音 | uroman 1.3.1.1，本機執行 |
+
+### 視覺規格
+
+材質：所有浮層為半透明底加背景模糊。
+
+| 層級 | 底色基準 | 模糊 |
+|---|---|---|
+| 主要控制項（搜尋框、磚塊 hover） | `--panel` | 14–20px |
+| 浮出面板（資料夾、新增視窗） | `--panel` | 26px |
+| 深色浮層（emoji 選單、目標選單、確認面板） | 固定深灰 0.80–0.93 | 16–22px |
+
+- 浮層疊在浮層上時，上層用固定深色，不跟隨主題變數，層次靠明度差拉開。
+
+色彩：
+
+- 前景色由桌布平均亮度決定，寫入 `--text`，並以 `data-ink` 切換面板底色的明暗方向。
+- 刪除確認面板與各類深色浮層固定深底白字，不隨 `data-ink` 變動。
+
+圓角：
+
+| 尺度 | 用途 |
+|---|---|
+| 999px | 膠囊：搜尋框、切換鈕、按鈕、dock 面板 |
+| 16–18px | 面板與磚塊 |
+| 10–12px | 輸入欄位、選單項目 |
+| 50% | 圓形按鈕與圖示底 |
+
+尺寸：所有重複出現的尺寸集中為 CSS 變數，不散落魔術數字。
+
+| 變數 | 用途 |
+|---|---|
+| `--dock-btn` `--dock-w` | 右下面板 |
+| `--add-row` `--add-ctl` | 新增視窗欄位與控制項 |
+| `--radius` | 面板圓角 |
+
+- 同一列的控制項高度必須相等，靠變數鎖定而非個別調整 padding。
+
+動畫時長：
+
+| 動作 | 時長 |
+|---|---|
+| 浮層展開 | 200–220ms |
+| 浮層收合 | 140–160ms |
+| 位移與讓位 | 160–200ms |
+| 微互動（hover、色彩） | 120–160ms |
+
+- 從觸發點長出來：變形原點對準觸發元素中心。
+- 只動該動的：未受影響的元素保持靜止。
+- 收合一律比展開快。
+- 展開與收合成對，收合播完才隱藏。
+- 可中斷：動畫保留 handle，重複觸發時取消前一次。
+- 動畫可整體關閉：關閉時所有 duration 與 delay 歸零，JS 端跳過 `Element.animate()` 並改為立即切換狀態。
+- 新功能加入動畫時必須同時處理關閉路徑。
+
+緩動曲線：
+
+| 情境 | 曲線 |
+|---|---|
+| 進場 | cubic-bezier(0.16, 1, 0.3, 1) |
+| 位移 | cubic-bezier(0.2, 0.9, 0.3, 1) |
+| 退場 | ease-in 或 cubic-bezier(0.4, 0, 0.9, 0.35) |
+
+### 支援的遊戲顯示模式
+
+- 支援無邊框視窗化與視窗化。
+- 面板展開時以 SHQueryUserNotificationState 檢查一次，值為 QUNS_RUNNING_D3D_FULL_SCREEN（3）時，面板下方顯示「偵測到獨佔全螢幕，請將遊戲改為無邊框視窗模式」，右側有「重新偵測」鈕。按下仍偵測到時紅底 4 秒「依舊不行，請確保已經改為無邊框視窗模式。」；未偵測到時綠底「已確認可正常運作！」，4 秒後與提示列一起消失。
+- 遊戲在獨佔全螢幕時，Alt+Tab 會回到桌面。
+
+### 邊條與面板
+
+- 收合時螢幕右緣露出邊條：寬 6px、高 120px、垂直置中、半透明。
+- 面板尺寸 420x640，垂直置中，Acrylic 毛玻璃上疊深灰 tint，不透明度 0.30。
+- 滑鼠停在邊條展開面板：從進入邊條到完全展開共 1.5 秒（停留 1290ms ＋ 展開動畫 210ms）。
+- Alt+Tab 切到本程式時自動展開面板。
+- 滑鼠停留展開與 Alt+Tab 展開後，焦點都進入文字翻譯頁的輸入框，不自動截圖。
+- 面板收合：點其他視窗、Alt+Tab 切走、按 Esc。
+- 面板展開期間以前景切換事件判斷失去焦點；前景切到 Alt+Tab 過渡視窗（class ForegroundStaging、XamlExplorerHostIslandWindow）不視為失去焦點。
+- Alt+Tab 清單中的「Gamersive-Translate」為一個 1x1、位於所有螢幕範圍外的主視窗；面板取得前景後隱藏主視窗，面板收合後以不啟用方式重新顯示。
+- 程式啟動時與每次面板收合後，主視窗短暫取得前景再交還原本的 app；交接期間不觸發展開與收合。
+- 「Gamersive-Translate」在 Alt+Tab 清單排第二。
+- 工作列有「Gamersive-Translate」按鈕，面板展開期間消失。
+- 面板預設貼主螢幕右緣。設定頁的螢幕下拉清單可切換螢幕，選項為「{螢幕型號} {寬}x{高}」；切換後邊條、面板與 OCR 截圖改到所選螢幕。config.json 的 screen 記所選螢幕的 QScreen.name()；記下的螢幕不存在或為空時使用 Windows 顯示設定的主螢幕。程式執行中螢幕增減時（接上外接螢幕、Win+P 切換），螢幕清單即時更新；目前所在螢幕被移除時改用主螢幕。
+- 設定頁的「動畫」開關預設開（config.json 的 animation）。關閉時展開與收合立即切換；收合完成後滑鼠在邊條停留滿 1.5 秒才展開。
+
+### 文字翻譯頁
+
+- 上下分屏：上方原文框，下方譯文框（唯讀）；中間一列由左到右為語言標示「自動偵測 → 繁體中文」、「清除」鈕、「翻譯」鈕。
+- 來源語言預設自動偵測，目標語言預設繁體中文（config.json：source_lang "auto"、target_lang "zh-TW"）。
+- 按 Enter 或翻譯按鈕送出，Shift+Enter 換行。
+- 翻譯在背景執行，進行中翻譯按鈕停用。
+- 翻譯失敗時原文保留，面板底部以紅底訊息顯示 4 秒。
+- 「清除」鈕清空該頁的原文、譯文與拼音；翻譯進行中停用；最近一次聆聽來自該頁時同時停止聆聽。
+- 原文框與譯文框的圖示鈕、聆聽、拼音依「圖示鈕、聆聽與拼音」一節。
+- 面板上方分頁列為「文字翻譯」「OCR」與最右側的「設定」，三鈕等高。
+- 分頁列下方、分頁內容上方為翻譯引擎下拉選單（Google、OpenAI 相容、Ollama），三個分頁都顯示，切換時寫入 config.json 的 engine。
+- 設定頁內容依序為：所選引擎的設定欄位、螢幕與動畫、字型與大小。
+- 介面文字預設 14pt，字型為 Qt 預設字型；面板標題字重 600。設定頁「字型」（系統字型清單）與「大小」（8–24pt）變更後立即套用，存於 config.json 的 font_family、font_size。
+- 設定欄位按 Enter 或離開欄位時寫入 config.json：
+
+| 引擎 | 欄位（placeholder） | config.json 鍵 |
+|---|---|---|
+| Google | Google API key（遮罩） | google_api_key |
+| OpenAI 相容 | base URL、API key（遮罩）、model | openai_base_url、openai_api_key、openai_model |
+| Ollama | endpoint（預設 http://localhost:11434）、model | ollama_endpoint、ollama_model |
+
+- 設定欄位 placeholder 為英文，其他介面文字為中文。
+- 下拉選單的選項清單為不透明深色底。
+- 輸入欄位圓角 11px、半透明底；按鈕膠囊形，圓角半徑為按鈕高度的一半。
+
+### 圖示鈕、聆聽與拼音
+
+- 文字翻譯頁與 OCR 頁的原文框、譯文框右下角各有三個圖示鈕，由左到右：聆聽 🔊、複製 ⧉、Google 搜索 🔍；滑鼠停留顯示「聆聽」「複製」「Google 搜索」；該框沒有文字時三個都隱藏；圖示鈕邊長 32px。三個鈕作用在所在框的文字。
+- 複製：文字放進剪貼簿，複製鈕上方顯示「已複製」氣泡 3 秒。
+- Google 搜索：以預設瀏覽器開啟 https://www.google.com/search?q={文字}，文字經網址編碼。
+- 聆聽：按下後偵測該框文字的語言；Windows 有該語言語音時以該語音唸出（中文需語言與地區都相同，其他語言比對語言），其餘以 OpenAI 語音播放；語言偵測失敗（含未設定 Google API key）時直接用 OpenAI 語音。語言偵測與 OpenAI 請求在背景執行。
+- 播放中再按聆聽：停止目前的播放並從頭播放；按另一個框的聆聽時停止目前的播放並播放新的。
+- 聆聽失敗時面板底部紅底顯示「聆聽失敗：{原因}」4 秒；原因為連線失敗、請求失敗、HTTP {狀態碼}：{伺服器訊息}、HTTP {狀態碼}，或播放元件回報的錯誤。
+- 拼音：翻譯成功後，以 uroman 把該次送出的原文轉成拉丁字母，顯示在送出翻譯那一頁的原文框內：原文文字下方一條灰色虛線，虛線下方為灰色拼音（唯讀、自動換行）。拼音與原文相同時不顯示。拼音區高度上限 96px，超出時捲動。
+- 有拼音時原文輸入的高度隨原文內容，原文超出時捲動；沒有拼音時原文輸入佔滿原文框。點原文框內留白處時焦點進入原文輸入。
+- 翻譯失敗時拼音維持前一次的內容。uroman 轉換失敗時翻譯照常顯示，拼音為空，失敗原因寫入 debug.log。
+
+### OCR 頁
+
+- OCR 頁的辨識預設由 Surya 執行：每次截圖啟動 llama-server、辨識完關閉，啟動逾時 30 秒，llama-server 在就緒前結束時顯示「llama-server 啟動失敗（退出碼 N）」；Surya 失敗時依序改用 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small，切換時紅底 4 秒顯示「OCR 改用 {引擎}：{原因}」，本次執行留在備用引擎。
+- 面板展開時與 Alt+Tab 切回時切到文字翻譯頁並聚焦輸入框。
+- 截圖選項一行，由左到右：截圖區域下拉清單（全畫面、上半部、下半部，預設全畫面）、「九宮格」按鈕，最右側依序為「自訂框選」按鈕、「截圖」按鈕。
+- 按「自訂框選」：面板隱藏，截取工具所在螢幕全畫面並以凍結畫面全螢幕顯示；以滑鼠拖出選取框，框外變暗，四角有小方形、四邊中點有小長方形控制點，可拖曳調整；框下方有 ✕（取消，Esc）與 ✓（確定，Enter）。確定後辨識框內畫面並自動翻譯；取消後面板顯示回來。框選範圍不保留。
+- 按「九宮格」在按鈕右側展開九宮格浮出面板：3x3 相連方格，點格切換選取，選取格為較亮底；點面板外或再點「九宮格」收合；選取保留。
+- 有選九宮格時截取所選格子的外框矩形；九宮格未選時截取下拉清單的區域；在下拉清單選區域時清空九宮格選取。
+- 按「截圖」：面板立即隱藏，60ms 後截圖，面板立即顯示並取回前景；隱藏與顯示回來後 500ms 內面板不收合。截圖、框選與辨識進行中「截圖」「自訂框選」兩鈕停用。
+- 截圖 2 秒內未取得畫面時重置截圖並顯示「OCR 失敗：截圖逾時」；截圖或辨識失敗以「OCR 失敗：{原因}」紅底訊息顯示 4 秒。
+- 辨識結果一行一個文字區塊，依 OCR 引擎輸出順序以換行串成原文，填入上方原文框並自動翻譯；下方為譯文。Surya 的文字區塊依序：移除 class 為 img-desc 的段落、去掉 html 標籤、把 &lt; &gt; &amp; 等字元實體轉回原字元、移除 Surya 2.5 的區塊座標與標籤 token（<|數字|>、<|英文字或-|>）、合併空白。
+- 辨識結果為 0 個文字區塊時原文框清空，不送出翻譯，不顯示訊息。
+- 原文可修改，按 Enter 或翻譯鈕重新翻譯，Shift+Enter 換行。
+- 原文框、譯文框、「清除」鈕、圖示鈕、聆聽、拼音與文字翻譯頁相同；「清除」只清 OCR 頁；拼音為整段原文的拼音，換行同原文。
+- 兩頁一次只翻一筆：翻譯進行中兩頁翻譯鈕停用；辨識完成時若有翻譯進行中，該筆回來後自動送出 OCR 翻譯。
+- 畫面上出現任何語言都要自動辨識正確，使用者不手動選語言或換模型。
+
+### 翻譯引擎
+
+| 引擎 | 接法 |
+|---|---|
+| Google（預設） | Cloud Translation Basic（v2），API key 認證，key 以網址參數傳送並經網址編碼，format=text，不帶來源語言即自動偵測；每月前 50 萬字元免費 |
+| OpenAI 相容 | POST {base URL}/chat/completions，一律帶 Authorization: Bearer {API key}（key 空時送空值），請求帶 reasoning_effort "medium"、不帶 temperature，逾時 60 秒，譯文取 choices[0].message.content，錯誤訊息取 error.message；可接 Claude、Gemini、OpenRouter 等；使用者 config 的 model 為 gpt-6-luna |
+| Ollama | POST {endpoint}/api/chat，stream 為 false，譯文取 message.content，錯誤訊息取 error |
+
+- 第一次啟動預設 Google（config.json engine "google"）。
+- Ollama 引擎只送一般 /api/chat 請求，messages 末尾不預填空思考塊。
+- Google 在文字翻譯頁整段送出一個 q；在 OCR 頁每個非空行一個 q，每 128 行送一次請求，譯文依原順序以換行串回，任一次失敗即顯示該次失敗訊息。OpenAI 相容與 Ollama 兩頁都整段送出。
+- Google 與 Ollama 的逾時為 10 秒。
+- 程式內有語言代碼對照表 zh-TW → 繁體中文；OpenAI 相容的語言名稱取自此表，表中沒有時用代碼。
+- 未送出請求即失敗的情況：Google 未設定 API key（「未設定 API key」）；OpenAI 相容未設定 model（「未設定模型」）；Ollama 未設定 endpoint（「未設定端點」）、未設定 model（「未設定模型」）。
+- 失敗訊息格式：「{引擎} 翻譯失敗：{原因}」；原因為連線失敗、請求失敗、HTTP {狀態碼}：{伺服器訊息}、HTTP {狀態碼}、回應格式無法解析，或上列未設定訊息。
+- 翻譯失敗時不自動換引擎重試。
+
+## 詞彙
+
+| 詞 | 定義 | 避免用 |
+|---|---|---|
+| 邊條 | 面板收合時露在螢幕右緣的細條，滑鼠停留後展開面板 | 把手、tab |
+| 面板 | 展開後的翻譯主視窗，含文字翻譯頁與 OCR 頁 | 視窗、浮窗 |
+| 文字翻譯頁 | 面板中輸入原文、顯示譯文的分頁 | |
+| OCR 頁 | 面板中擷取畫面文字並翻譯的分頁 | |
+| 截圖區域 | OCR 擷取的畫面範圍：全畫面、上半部、下半部，或複選的九宮格格子 | |
+| OCR 引擎 | 輸入圖片、輸出依閱讀順序排列的文字區塊的辨識服務；主引擎 Surya，備用依序為 RapidOCR PP-OCRv5 mobile、PP-OCRv6 small | |
+| 文字區塊 | OCR 引擎輸出的一段文字；RapidOCR 為一行一個區塊；Surya 為一個區塊一個文字區塊 | |
+| 翻譯引擎（engine） | 把原文翻成譯文的服務，可選 Google、OpenAI 相容或 Ollama，由設定的 engine 決定 | 翻譯器、後端 |
+| Google | 使用 Google Cloud Translation（Basic v2）的翻譯引擎，以 API key 認證 | |
+| OpenAI 相容（OpenAI-compatible） | 使用 OpenAI Chat Completions 格式 API 的翻譯引擎，可接任何相容的服務 | |
+| Ollama | 使用本機 Ollama 服務 /api/chat 的翻譯引擎 | |
+| base URL | OpenAI 相容引擎的 API 根網址，請求送到 {base URL}/chat/completions | |
+| API key（金鑰） | 翻譯引擎用來認證的金鑰；Google 放在網址參數，OpenAI 相容以 Bearer 標頭送出 | token |
+| 模型（model） | OpenAI 相容與 Ollama 引擎用來翻譯的模型名稱 | |
+| 端點（endpoint） | Ollama 的服務網址，預設 http://localhost:11434 | |
+
+## 原型（prototype/）
+
+### 檔案
+
+| 檔案／資料夾 | 位置 | 內容 |
+|---|---|---|
+| PROTOTYPE-ocr-bench.py | 分支 prototype/ocr-bench | dxcam 截圖或讀已存截圖，RapidOCR 辨識，印出耗時與結果。參數：--ver v6、v5、v5-eslav；--region full、top、bottom；--cells（九宮格 1–9）；--image；--delay；--runs；--output |
+| PROTOTYPE-surya.py | 分支 prototype/ocr-bench | Surya 辨識同一張截圖 3 次，印出耗時、記憶體峰值、VRAM 已用。參數為 llama 資料夾名稱（llama.cpp 或 llama.cpp-cuda） |
+| PROTOTYPE-memwatch.py | 分支 prototype/ocr-bench | 取樣本程序與子程序的記憶體峰值 |
+| .venv | 工作目錄（未加入 git） | dxcam、rapidocr、onnxruntime |
+| .venv-surya | 工作目錄（未加入 git） | surya-ocr、torch 2.14.1+cpu、psutil |
+| llama.cpp | 工作目錄（未加入 git） | llama.cpp b11669 Windows CPU x64 |
+| .gitignore | 分支 prototype/ocr-bench | 排除 .venv/、__pycache__/、.venv-*/、llama.cpp/、llama.cpp-cuda/ |
+
+### 實測結果（同一張遊戲截圖，2560x1440，含英文任務文字與俄文標語）
+
+| 項目 | RapidOCR v6 small（CPU） | RapidOCR v5 mobile（CPU） | Surya（GPU） |
+|---|---|---|---|
+| 支援語言總數 | 50 種，單一模型：中、英、日＋46 種拉丁語系（tiny 等級不含日文）；官方未列韓文、西里爾 | 106 種，依書寫系統分模型：預設模型涵蓋簡中、繁中、英、日；韓文、拉丁、東斯拉夫（eslav：俄、白俄、烏克蘭、英）、西里爾、泰、希臘、阿拉伯、天城、坦米爾、泰盧固各為專用模型，需指定語言 | 91 種，不需指定語言：含漢字（中文只列 zh，未區分繁簡）、假名、韓文、西里爾、阿拉伯、泰、天城、希臘、希伯來等 |
+| 不指定語言即可辨識 | 中、英、日、拉丁語系 | 中、英、日（預設模型） | 91 種語言 |
+| 英文 | 全對 | 有錯字（Jourmal、Take a potatot、1724） | 全對，僅 TAB 圖示辨識為 JAB |
+| 俄文 | 亂碼 | 亂碼，Ф 辨識為「中」 | 全對 |
+| 熱機後每次耗時 | 約 0.5 秒 | 約 0.5 秒 | 3.3–3.4 秒 |
+| 第 1 次耗時 | 約 1 秒 | 約 1 秒 | 11.9 秒 |
+| 系統記憶體峰值 | 未測 | 未測 | 2268MB |
+| VRAM | 不使用 | 不使用 | 約增加 3.3GB |
+
+其他實測：
+
+- dxcam 截圖 8–11ms，能截到無邊框模式的遊戲畫面。
+- RapidOCR v5 搭配 eslav 模型：俄文全對，英文有 Joumal 錯字；只涵蓋俄、白俄、烏克蘭、英文。
+- Surya（GPU）在遊戲進行中：熱機後 4.6–4.8 秒，第 1 次 23.4 秒，記憶體峰值 2397MB，VRAM 已用由 10287MB 增至 11226MB，辨識結果與未開遊戲時相同；該遊戲於辨識期間未受影響。
+- Surya 在 CPU（llama.cpp CPU 版）：熱機後 15.9–17.7 秒，記憶體峰值 3589MB，辨識結果與 GPU 版相同。
+- Surya 在程式中全畫面（2560x1440）截圖，從截圖到收到辨識結果約 24.5 秒（含啟動 llama-server）。
+- RapidOCR 依文字行高度排序輸出，全畫面時左右欄同高度的文字會交錯；Surya 依區塊輸出，同區塊多行合為一段。
+- 同一行俄文 КАРТОФЕЛИНА：v6 輸出錯誤結果 KAPTOENHA，信心分數 0.94；v5 eslav 輸出正確結果，信心分數 0.89。
+- 原型由 surya 自己啟動 llama-server 時，結束時的清理步驟停住不結束。
+
+## 待辦
+
+- 聆聽的 OpenAI 語音改用 gpt-realtime-2.1-mini，期限 2027-01-06。
+- 查 OCR 頁「中英混合畫面有幾行英文未讀出」。
+- 消除 pytest 的 PydanticDeprecatedSince20 warning（來自 surya/settings.py 的 class Config）：fork datalab-to/surya 到 SevidLim，從 tag v0.23.0 開分支，settings.py 改為 model_config = SettingsConfigDict(env_file=find_dotenv("local.env"), extra="ignore")，requirements.txt 的 surya-ocr 改為 surya-ocr @ git+https://github.com/SevidLim/surya.git@<完整 commit hash>。
+
+## 未決
+
+- 預設使用的 Ollama 模型。
+- 日文 OCR 尚未實測。
+- 繁體中文在 Surya 的辨識品質尚未實測。
+- 全畫面 OCR 結果送翻譯前的區塊分組方式。
+- 辨識出 0 個文字區塊時是否改為顯示提示。
+- RapidOCR 的 [INFO] 日誌是否關閉（RapidOCR 設定 Global.log_level）。
+- config.json 內容損毀時的啟動方式。
+- Acrylic 開啟失敗時，不透明底的圓角裁切。
+- 偶發的面板不透明底（Acrylic 回報成功時）的原因。
+- 長原文時，拼音被原文框圖示鈕蓋住的處理。
+- llama-server 啟動或辨識時記憶體配置失敗（bad allocation、GGML_ASSERT(ctx->mem_buffer != NULL)、failed to allocate CUDA_Host buffer、Python MemoryError）的原因。
+- Surya 整頁辨識時以一般段落輸出的畫面描述的處理方式。
+- gpt-realtime-2.1-mini 的接法：Realtime WebSocket 的 voice、音訊格式、讓模型逐字唸出文字的方式。
+- 英文的 KK 音標或 IPA。
+- 拼音是否改用 Google romanizeText。
