@@ -3,8 +3,6 @@
 import http.client
 import json
 
-import pytest
-
 from gt import translate
 from gt.translate import AUTO, ENGINES, Field, GoogleTranslator, OllamaTranslator, OpenAICompatibleTranslator, make_translator
 
@@ -21,11 +19,6 @@ class FakePost:
         if self.error:
             raise self.error
         return self.status, self.body
-
-
-@pytest.fixture(autouse=True)
-def _no_debuglog(monkeypatch):
-    monkeypatch.setattr(translate, "log", lambda msg: None)
 
 
 def ok_body(text, detected="en"):
@@ -235,15 +228,6 @@ def test_make_translator_uses_selected_engine(monkeypatch):
 def test_engine_table_lists_engines_and_fields():
     assert [(k, e.name) for k, e in ENGINES.items()] == [("google", "Google"), ("openai", "OpenAI 相容"), ("ollama", "Ollama")]
     assert ENGINES["ollama"].fields == [Field("ollama_endpoint", "endpoint", False), Field("ollama_model", "model", False)]
-
-
-def test_openai_logs_status_and_full_response_body(monkeypatch):
-    messages = []
-    monkeypatch.setattr(translate, "log", messages.append)
-    OpenAICompatibleTranslator("http://x/v1", "K", "m", FakePost(body=openai_body("你好"))).translate("Hello", AUTO, "zh-TW")
-    assert len(messages) == 1
-    assert "status=200" in messages[0]
-    assert r"\\u4f60\\u597d" in messages[0]            # json.dumps 預設 ensure_ascii，repr 再把反斜線加倍
 
 
 class FakeResponse:

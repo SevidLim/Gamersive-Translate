@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QIma
 from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
 
-from gt import debuglog, platform_win
+from gt import platform_win
 from gt.search import google_search_url
 from gt.translate import ENGINES
 
@@ -738,9 +738,6 @@ class Panel(QWidget):
 
     def show_ocr_result(self, blocks):
         """辨識完成（UI 執行緒）：文字區塊以換行串成原文，自動翻譯。"""
-        # 暫時 debug：辨識結果送到面板時的分頁、翻譯狀態、文字區塊數，追查截圖後沒有文字顯示
-        debuglog.log(f"OCR 結果送到面板 分頁={self.stack.currentIndex()} "
-                     f"翻譯進行中={not self.translate_btn.isEnabled()} 文字區塊數={len(blocks)}")
         self.set_capture_enabled(True)
         self.ocr_input.setPlainText("\n".join(blocks))
         if not self.translate_btn.isEnabled():          # 前一筆翻譯回來後再送出
@@ -749,9 +746,6 @@ class Panel(QWidget):
         self._submit(self.ocr_input, self.ocr_output, True)
 
     def show_ocr_error(self, reason):
-        # 暫時 debug：辨識失敗送到面板時的分頁、翻譯狀態、失敗原因
-        debuglog.log(f"OCR 失敗送到面板 分頁={self.stack.currentIndex()} "
-                     f"翻譯進行中={not self.translate_btn.isEnabled()} 失敗原因={reason}")
         self.set_capture_enabled(True)
         self._show_status(f"OCR 失敗：{reason}")
 
@@ -865,10 +859,6 @@ class Panel(QWidget):
     def show_result(self, result, roman=""):
         """翻譯完成（UI 執行緒）：成功顯示譯文與原文的拼音 roman（空字串時隱藏拼音區），
         失敗在底部短暫顯示引擎與原因。"""
-        # 暫時 debug：翻譯結果送到面板時的目標分頁、失敗原因或譯文字數、是否有待送出的 OCR 翻譯
-        debuglog.log(f"翻譯結果送到面板 目標分頁={0 if self._target_output is self.output else 1} "
-                     + (f"譯文字數={len(result.text)}" if result.error is None else f"失敗原因={result.error}")
-                     + f" 待送出OCR翻譯={self._ocr_pending}")
         self.translate_btn.setEnabled(True)
         self.ocr_translate_btn.setEnabled(True)
         self.clear_btn.setEnabled(True)
@@ -938,7 +928,6 @@ class Panel(QWidget):
                 self.acrylic = platform_win.enable_acrylic(int(self.winId()), ACRYLIC_TINT)
             except Exception:                           # 系統 API 失敗就改畫不透明深色底
                 self.acrylic = False
-            debuglog.log(f"acrylic={self.acrylic} build={platform_win.windows_build()}")  # 暫時 debug：追查偶發的不透明底
             self.update()
 
     def paintEvent(self, _):

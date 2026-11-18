@@ -3,7 +3,6 @@
 import signal
 import sys
 import threading
-import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication
@@ -56,10 +55,6 @@ def main():
         src, dst = cfg["source_lang"], cfg["target_lang"]
         # 只有 Google 支援一行一個 q；其他引擎照舊整段送出
         kwargs = {"by_line": True} if by_line and isinstance(translator, translate.GoogleTranslator) else {}
-        # 暫時 debug：翻譯送出時的引擎、是否一行一個 q、原文行數與字數
-        debuglog.log(f"翻譯送出 引擎={translator.name} 一行一個q={bool(kwargs)} "
-                     f"原文行數={len(text.splitlines())} 原文字數={len(text)}")
-        start = time.monotonic()
         def run():
             result = translator.translate(text, src, dst, **kwargs)
             roman = ""
@@ -68,10 +63,6 @@ def main():
                     roman = romanize.romanize(text)      # 第一次使用時載入 uroman 資料
                 except Exception as e:                   # 例如未安裝 uroman：翻譯結果照常送回
                     debuglog.log(f"拼音失敗：{e!r}")
-            # 暫時 debug：翻譯回來時的失敗原因或譯文字數、耗時、拼音字數
-            debuglog.log("翻譯回來 "
-                         + (f"譯文字數={len(result.text)}" if result.error is None else f"失敗原因={result.error}")
-                         + f" 耗時={time.monotonic() - start:.2f}s 拼音字數={len(roman)}")
             relay.done.emit(result, roman)
 
         threading.Thread(target=run, daemon=True).start()   # 網路請求在背景執行緒，不卡 UI
@@ -141,7 +132,6 @@ def main():
         if error is not None:
             panel.show_ocr_error(str(error) or type(error).__name__)
             return
-        debuglog.log(f"截圖 region={region} cells={sorted(cells)} shape={image.shape}")    # 暫時 debug：截圖區域與圖片尺寸
         start_ocr(image)
 
     selector = {"window": None}                   # 自訂框選視窗，框選期間保留參照
@@ -175,18 +165,10 @@ def main():
             return
         h, fw = frame.shape[:2]                      # 邏輯座標換算成截圖實體像素
         x1, y1, x2, y2 = capture.scale_box(box, w.width(), w.height(), fw, h)
-        # 暫時 debug：自訂框的像素框與圖片尺寸
-        debuglog.log(f"自訂框選 像素框={(x1, y1, x2, y2)} shape={frame[y1:y2, x1:x2].shape}")
         start_ocr(frame[y1:y2, x1:x2])
 
     def start_ocr(image):
         def run():
-            try:                                     # 暫時 debug：送辨識的圖片存成 last-capture.png，每次覆寫
-                from PIL import Image
-                Image.fromarray(image[:, :, ::-1].copy()).save(
-                    config.config_path().with_name("last-capture.png"))    # BGR → RGB
-            except Exception as e:
-                debuglog.log(f"截圖存檔失敗：{e!r}")
             try:
                 relay.ocr_done.emit(ocr_engine.recognize(image))
             except Exception as e:

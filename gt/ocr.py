@@ -14,7 +14,6 @@ import urllib.request
 from pathlib import Path
 
 from gt import config
-from gt.debuglog import log
 
 LLAMA_SERVER = Path(__file__).resolve().parents[1] / "llama.cpp-cuda" / "llama-server.exe"
 SURYA_MODEL = "datalab-to/surya-ocr-2.5"         # surya 檢查 /v1/models 的 model id，由 --alias 提供
@@ -66,10 +65,7 @@ def surya_blocks(pred, img):
     else:
         html = {}
     blocks = []
-    for i, b in enumerate(page.blocks):
-        # 暫時 debug：每個區塊的原始輸出，追查讀出文字以外的內容
-        log(f"surya 區塊 {i} label={b.label} skipped={b.skipped} 再辨識={id(b) in html} 整頁 html={b.html!r}"
-            + (f" 再辨識 html={html[id(b)]!r}" if id(b) in html else ""))
+    for b in page.blocks:
         text = _clean(html.get(id(b), b.html))
         if text:
             blocks.append(text)
@@ -106,7 +102,6 @@ class SuryaEngine:
             self._log_fp.close()                     # 啟動不了（例如找不到 exe）也關閉 log 檔
             self._log_fp = None
             raise
-        log(f"llama-server 啟動 pid={self._proc.pid} port={port}")
         try:
             self._wait_ready(port)
             return self._run(image, port)
@@ -144,7 +139,6 @@ class SuryaEngine:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-        log(f"llama-server 結束 pid={proc.pid} 退出碼={proc.returncode}")
         if self._log_fp is not None:
             self._log_fp.close()
             self._log_fp = None
@@ -180,14 +174,10 @@ class FallbackEngine:
 
     def recognize(self, image):
         while True:
-            start = time.monotonic()                 # 暫時 debug：每次辨識的引擎、文字區塊數、耗時
             try:
                 blocks = self._engines[0].recognize(image)
-                log(f"OCR 引擎={self._engines[0].name} 文字區塊數={len(blocks)} 耗時={time.monotonic() - start:.2f}s")
                 return blocks
             except Exception as e:
-                # 暫時 debug：引擎失敗原因
-                log(f"OCR 引擎 {self._engines[0].name} 失敗（{time.monotonic() - start:.2f}s）：{e!r}")
                 if len(self._engines) == 1:
                     raise
                 self._engines.pop(0)

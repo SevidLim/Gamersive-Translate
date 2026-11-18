@@ -15,7 +15,6 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable, NamedTuple
 
-from gt.debuglog import log
 
 AUTO = "auto"
 LANG_NAMES = {"zh-TW": "繁體中文"}                 # 語言代碼 → 語言名稱
@@ -148,14 +147,7 @@ class OpenAICompatibleTranslator:
         if missing := _missing_model(self.name, self.model):
             return missing
         headers = {"Authorization": f"Bearer {self.api_key}"}
-
-        def post(url, payload, headers):
-            status, body = self.post(url, payload, headers)
-            # 暫時 debug：OpenAI 相容的狀態碼與完整回應內容，追查譯文只回一小段
-            log(f"OpenAI 相容回應 status={status} body={body.decode('utf-8', 'replace')!r}")
-            return status, body
-
-        return _request(self.name, post, _join_url(self.base_url, "/chat/completions"),
+        return _request(self.name, self.post, _join_url(self.base_url, "/chat/completions"),
                         {"model": self.model, "messages": _openai_messages(text, target), "reasoning_effort": "medium"}, headers,
                         lambda d: d["choices"][0]["message"]["content"], _error_message)
 
