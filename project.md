@@ -317,6 +317,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板
 - 長原文時，拼音被原文框圖示鈕蓋住的處理。
 - llama-server 啟動或辨識時記憶體配置失敗（bad allocation、GGML_ASSERT(ctx->mem_buffer != NULL)、failed to allocate CUDA_Host buffer、Python MemoryError）的原因。
 - Surya 整頁辨識時以一般段落輸出的畫面描述的處理方式。
+- OpenAI 相容翻譯 OCR 畫面時，俄文段落有時未被翻譯（俄文後方接有中文譯文的畫面，12 次中 1–3 次）的原因。
 - gpt-realtime-2.1-mini 的接法：Realtime WebSocket 的 voice、音訊格式、讓模型逐字唸出文字的方式。
 - 英文的 KK 音標或 IPA。
 - 拼音是否改用 Google romanizeText。
