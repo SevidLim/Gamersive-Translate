@@ -7,6 +7,14 @@ import ctypes
 import sys
 
 IS_WIN = sys.platform == "win32"
+APP_ID = "SevidLim.GamersiveTranslate"           # 工作列以此分組，圖示取程式視窗的圖示
+
+
+def set_app_id():
+    """設定本程序的 AppUserModelID；以 python.exe 執行時工作列按鈕才顯示本程式圖示。"""
+    if IS_WIN:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+
 
 if IS_WIN:
     from ctypes import wintypes

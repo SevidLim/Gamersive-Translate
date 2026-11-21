@@ -143,3 +143,16 @@ def test_loading_interrupts_return(app):
     b.ended()
     b.start_loading()
     assert b.state == "loading" and b._phase is None
+
+
+def test_second_return_after_shake_keeps_numeric_value(app):
+    b = make(app, animated=True, morph=False, celebrate=True)
+    seen = []
+    b._ret_anim.valueChanged.connect(seen.append)
+    for _ in range(2):                                   # 第二次換回時要清掉上一次晃動的關鍵影格
+        b.start_loading()
+        b.finish(True)
+        b.ended()
+        QTest.qWait(COLLAPSE_MS + EXPAND_MS + SHAKE_MS + 300)
+        assert b.state == "idle"
+    assert None not in seen and isinstance(b._ret, float)

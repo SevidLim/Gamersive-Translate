@@ -11,11 +11,10 @@ import socket
 import subprocess
 import time
 import urllib.request
-from pathlib import Path
 
 from gt import config
 
-LLAMA_SERVER = Path(__file__).resolve().parents[1] / "llama.cpp-cuda" / "llama-server.exe"
+LLAMA_SERVER = config.APP_ROOT / "llama.cpp-cuda" / "llama-server.exe"
 SURYA_MODEL = "datalab-to/surya-ocr-2.5"         # surya 檢查 /v1/models 的 model id，由 --alias 提供
 STARTUP_TIMEOUT = 30                             # 等 llama-server /health 回 200 的上限秒數
 os.environ["HF_HUB_OFFLINE"] = "1"                 # 模型檔已在本機快取，不向 Hugging Face Hub 送請求

@@ -7,10 +7,11 @@
 
 from PySide6.QtCore import (QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, QUrl,
                             QVariantAnimation, Signal)
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen, QTextCursor
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QGuiApplication, QIcon, QImage, QPainter, QPainterPath, QPen,
+                           QTextCursor)
 from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
-                               QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QTextEdit,
-                               QVBoxLayout, QWidget)
+                               QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget,
+                               QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget)
 
 from gt import platform_win
 from gt.search import google_search_url
@@ -114,6 +115,31 @@ QTextEdit#roman {{  /* 上緣的灰色虛線隔開原文與拼音 */
 }}
 QLabel#bubble {{ background: rgba(32, 32, 40, 0.80); border-radius: {FIELD_RADIUS}px; padding: 6px 10px; }}  /* 深色浮層，同 POPUP_BG */
 """
+
+
+# 系統匣右鍵選單：深色浮層、圓角（視覺規格）
+TRAY_MENU_QSS = f"""
+QMenu {{
+    color: #f2f2f5; background: rgba(32, 32, 40, 0.80);
+    border: 1px solid rgba(255, 255, 255, 0.16); border-radius: {FIELD_RADIUS}px; padding: 4px;
+}}
+QMenu::item {{ padding: 6px 16px; border-radius: {FIELD_RADIUS - 4}px; }}
+QMenu::item:selected {{ background: rgba(255, 255, 255, 0.14); }}
+"""
+
+
+def make_tray(icon_path, on_quit):
+    """系統匣圖示：圖示為 icon_path，右鍵選單只有「結束」（呼叫 on_quit）。"""
+    menu = QMenu()
+    menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+    menu.setAttribute(Qt.WA_TranslucentBackground)       # 圓角外的區域透明
+    menu.setStyleSheet(TRAY_MENU_QSS)
+    menu.addAction("結束", on_quit)
+    tray = QSystemTrayIcon(QIcon(str(icon_path)))
+    tray.setToolTip("Gamersive-Translate")
+    tray.setContextMenu(menu)
+    tray.menu = menu                                    # QSystemTrayIcon 不持有選單，保留參照
+    return tray
 
 
 def bezier(x1, y1, x2, y2):
@@ -514,22 +540,26 @@ class LoadingButton(QPushButton):
     def _run_phase(self, phase):
         a = self._ret_anim
         a.stop()
-        a.setKeyValues([])                              # 清掉上一段（晃動）的關鍵影格
         self._phase = phase
-        if phase == "shake":
-            a.setEasingCurve(QEasingCurve.Linear)
-            a.setDuration(SHAKE_MS)
-            a.setStartValue(0.0)
-            for t, deg in SHAKE_KEYS:
-                a.setKeyValueAt(t, float(deg))
-        else:
-            shrink = phase == "shrink"
-            a.setEasingCurve(COLLAPSE_CURVE if shrink else EXPAND_CURVE)
-            a.setDuration(COLLAPSE_MS if shrink else EXPAND_MS)
-            a.setStartValue(1.0 if shrink else 0.0)
-            a.setEndValue(0.0 if shrink else 1.0)
-        self._ret = a.startValue()
-        a.start()
+        a.blockSignals(True)                            # 設定期間清空關鍵影格會送出值為 None 的 valueChanged
+        try:
+            a.setKeyValues([])                          # 清掉上一段（晃動）的關鍵影格
+            if phase == "shake":
+                a.setEasingCurve(QEasingCurve.Linear)
+                a.setDuration(SHAKE_MS)
+                a.setStartValue(0.0)
+                for t, deg in SHAKE_KEYS:
+                    a.setKeyValueAt(t, float(deg))
+            else:
+                shrink = phase == "shrink"
+                a.setEasingCurve(COLLAPSE_CURVE if shrink else EXPAND_CURVE)
+                a.setDuration(COLLAPSE_MS if shrink else EXPAND_MS)
+                a.setStartValue(1.0 if shrink else 0.0)
+                a.setEndValue(0.0 if shrink else 1.0)
+            self._ret = float(a.startValue())
+            a.start()
+        finally:
+            a.blockSignals(False)
         self.update()
 
     def _set_ret(self, v):

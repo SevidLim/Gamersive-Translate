@@ -3,9 +3,21 @@
 import copy
 import json
 import os
+import sys
 from pathlib import Path
 
 APP_NAME = "Gamersive-Translate"
+
+
+def app_root():
+    """程式根目錄：Nuitka 建置版為 exe 所在資料夾（sys.executable 指向該資料夾內的 python.exe），
+    原始碼執行時為專案根目錄。"""
+    if "__compiled__" in globals():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
+
+
+APP_ROOT = app_root()                           # llama.cpp-cuda/、assets/ 所在的資料夾
 
 DEFAULTS = {
     "config_version": 1,

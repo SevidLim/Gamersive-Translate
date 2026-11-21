@@ -5,12 +5,13 @@ import sys
 import threading
 
 from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from gt import capture, config, debuglog, ocr, platform_win, romanize, speech, translate
 from gt.panel_state import Command, Event, PanelStateMachine, State
 from gt.speaker import Speaker
-from gt.ui import EXPAND_MS, HostWindow, Panel, RegionSelector, Strip, apply_font
+from gt.ui import EXPAND_MS, HostWindow, Panel, RegionSelector, Strip, apply_font, make_tray
 
 HOVER_DELAY_MS = 1000 - EXPAND_MS               # 從進入邊條到面板完全展開共 1 秒
 HOVER_DELAY_NO_ANIM_MS = 1000                   # 動畫關閉：停留滿 1 秒立即展開
@@ -32,12 +33,17 @@ class _Relay(QObject):
 
 def main():
     cfg = config.load()                          # 首次啟動建立 config.json 並寫入預設值
+    platform_win.set_app_id()                    # 建立視窗前設定，工作列按鈕用本程式圖示
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, lambda *a: app.quit())   # 終端機 Ctrl+C 正常結束，關閉 llama-server
     idle = QTimer()
     idle.timeout.connect(lambda: None)           # 定時回到 Python，讓 Ctrl+C 能被處理
     idle.start(200)
     app.setQuitOnLastWindowClosed(False)
+    icon = config.APP_ROOT / "assets" / "icon.png"
+    app.setWindowIcon(QIcon(str(icon)))           # 工作列按鈕與 Alt+Tab 清單的圖示
+    tray = make_tray(icon, app.quit)              # 右下角系統匣：右鍵「結束」
+    tray.show()
     if not cfg["font_family"]:
         cfg["font_family"] = app.font().family()     # 預設字型＝QApplication 目前預設字型
     apply_font(cfg["font_family"], cfg["font_size"])
