@@ -45,7 +45,7 @@ def main():
     screen = config.pick_screen(app.screens(), cfg["screen"], app.primaryScreen())
     machine = PanelStateMachine()
     machine.animated = cfg["animation"]
-    strip = Strip(screen)
+    strip = Strip(screen, cfg["side"])
     panel = Panel(screen, cfg)
     relay = _Relay()
     relay.done.connect(panel.show_result)
@@ -83,6 +83,7 @@ def main():
         if seq != listening["seq"]:
             return
         if r.error is not None:
+            panel.listen_failed()
             panel._show_status(f"聆聽失敗：{r.error}")
         elif r.locale is not None:
             speaker.say(text, r.locale)
@@ -94,7 +95,9 @@ def main():
         speaker.stop()
 
     relay.listen_ready.connect(on_listen_ready)
-    speaker.failed.connect(lambda reason: panel._show_status(f"聆聽失敗：{reason}"))
+    speaker.failed.connect(lambda reason: (panel.listen_failed(), panel._show_status(f"聆聽失敗：{reason}")))
+    speaker.started.connect(panel.listen_started)
+    speaker.finished.connect(panel.listen_ended)
     panel.listen_requested.connect(on_listen)
     panel.listen_stop_requested.connect(on_listen_stop)
 
@@ -165,6 +168,7 @@ def main():
             return
         h, fw = frame.shape[:2]                      # 邏輯座標換算成截圖實體像素
         x1, y1, x2, y2 = capture.scale_box(box, w.width(), w.height(), fw, h)
+        panel.capture_loading()
         start_ocr(frame[y1:y2, x1:x2])
 
     def start_ocr(image):
@@ -198,6 +202,13 @@ def main():
         on_setting("animation", on)
 
     panel.screen_changed.connect(on_screen)
+
+    def on_side(side):
+        strip.set_side(side)                         # 邊條移到所選螢幕的該側邊緣
+        panel.set_side(side)                         # 面板改貼該側邊緣
+        on_setting("side", side)
+
+    panel.side_changed.connect(on_side)
 
     def on_screens_changed(removed=None):
         """螢幕增減：目前的螢幕被移除時邊條與面板移到主螢幕，並重建螢幕下拉清單。"""

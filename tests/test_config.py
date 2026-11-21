@@ -49,3 +49,8 @@ def test_target_for_each_page():
     cfg = {"target_lang": "zh-TW", "ocr_target_lang": "en-US"}
     assert config.target_for(cfg, False) == "zh-TW"
     assert config.target_for(cfg, True) == "en-US"
+
+
+def test_side_default_right(tmp_path):
+    cfg = config.load(tmp_path / "config.json")
+    assert cfg["side"] == "right"

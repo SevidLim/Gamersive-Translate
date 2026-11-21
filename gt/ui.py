@@ -5,10 +5,12 @@
 側滑也照 glass.py：視窗寬度從 0 變到全寬，內容固定全寬、靠左貼齊，看起來是滑出來。
 """
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QUrl, QVariantAnimation, Signal
+from PySide6.QtCore import (QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, QUrl,
+                            QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPen, QTextCursor
-from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFontComboBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
+                               QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget, QTextEdit,
+                               QVBoxLayout, QWidget)
 
 from gt import platform_win
 from gt.search import google_search_url
@@ -44,6 +46,24 @@ LISTEN_MARGIN = 6                                # 圖示鈕與文字框右下�
 ROMAN_MAX_H = 96                                 # 拼音區高度上限（px），超出時捲動
 ROMAN_PAD = 6                                    # 拼音區虛線與拼音、拼音與框底的距離（px）
 COPIED_MS = 3000                                 # 「已複製」氣泡顯示多久
+DONE_MS = 800                                    # loading 完成後 ✓ 顯示多久
+SHAKE_MS = 300                                   # 聆聽鈕換回 🔊 後的左右晃動
+SHAKE_KEYS = ((0.25, 25), (0.5, -16), (0.75, 8), (1.0, 0))  # 以圖示中心左右晃動的角度（度）
+STOP_ICON = "\u23F9"                             # 聆聽鈕播放中的停止圖示 ⏹
+DONE_BG = QColor(0xA5, 0xCF, 0x83)              # 聆聽鈕 ✓ 的綠底 #A5CF83
+DONE_BG_ALPHA = 0.8                              # 亮綠底的不透明度
+SPIN_MS = 1000                                   # loading 圈轉一圈
+SPIN_SPAN = 270                                  # loading 圈弧線長度（度）
+SPIN_PEN = 2                                     # loading 圈線寬（px）
+SPIN_INSET = 8                                   # loading 圈與圓形邊緣的距離（px）
+BTN_BG = QColor(255, 255, 255, 36)               # 同 QSS QPushButton 底色 0.14
+BTN_STROKE = QColor(255, 255, 255, 51)           # 同 QSS QPushButton 邊框 0.20
+BTN_TEXT = QColor(242, 242, 245)                 # 同 QSS 文字色 #f2f2f5
+SWITCH_W, SWITCH_H = 44, 24                      # 面板位置開關的軌道寬、高（px）
+SWITCH_KNOB_PAD = 3                              # 開關圓鈕與軌道邊緣的距離（px）
+SWITCH_MS = 180                                  # 開關圓鈕滑動（位移 160–200ms）
+SIDE_NAMES = {"left": "左側", "right": "右側"}
+CONFIRM_BG = "rgba(32, 32, 40, 0.93)"            # 確認浮層：固定深灰 0.93
 WIDGET_MAX_H = 16777215                          # Qt 元件高度上限的預設值（QWIDGETSIZE_MAX），即不限高度
 
 # 文字翻譯頁的 QSS（README「視覺規格」：半透明底、輸入欄位圓角、按鈕膠囊）
@@ -103,6 +123,7 @@ def bezier(x1, y1, x2, y2):
 
 
 EXPAND_CURVE = bezier(0.16, 1, 0.3, 1)           # 進場
+MOVE_CURVE = bezier(0.2, 0.9, 0.3, 1)            # 位移
 COLLAPSE_CURVE = bezier(0.4, 0, 0.9, 0.35)       # 退場
 
 TOP_FLAGS = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -119,21 +140,32 @@ def apply_font(family, size):
         w.setFont(f)
 
 
+def edge_x(geo, side, width):
+    """寬 width 的視窗貼螢幕 geo 的 side 緣（"left"／"right"）時的 x。"""
+    return geo.x() if side == "left" else geo.x() + geo.width() - width
+
+
 class Strip(QWidget):
-    """邊條：貼所選螢幕右緣、垂直置中。"""
+    """邊條：貼所選螢幕左緣或右緣（side）、垂直置中。"""
 
     entered = Signal()
     left = Signal()
 
-    def __init__(self, screen):
+    def __init__(self, screen, side):
         super().__init__(None, TOP_FLAGS)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.side = side
         self.set_screen(screen)
 
     def set_screen(self, screen):
+        self._screen = screen
         g = screen.geometry()
-        self.setGeometry(g.x() + g.width() - STRIP_W, g.y() + (g.height() - STRIP_H) // 2, STRIP_W, STRIP_H)
+        self.setGeometry(edge_x(g, self.side, STRIP_W), g.y() + (g.height() - STRIP_H) // 2, STRIP_W, STRIP_H)
+
+    def set_side(self, side):
+        self.side = side
+        self.set_screen(self._screen)
 
     def enterEvent(self, e):
         super().enterEvent(e)
@@ -204,6 +236,391 @@ class SourceEdit(QPlainTextEdit):
         super().keyPressEvent(e)
 
 
+class SideSwitch(QWidget):
+    """面板位置的滑動開關：圓鈕在左＝左側、在右＝右側。點一下圓鈕滑到另一側並送出 requested(另一側)；
+    set_side() 以 SWITCH_MS 滑到指定側（animated 為 False 時直接移過去）。"""
+
+    requested = Signal(str)
+
+    def __init__(self, side):
+        super().__init__()
+        self.setFixedSize(SWITCH_W, SWITCH_H)
+        self.setCursor(Qt.PointingHandCursor)
+        self.animated = True
+        self.side = side
+        self._pos = 0.0 if side == "left" else 1.0     # 0＝左，1＝右
+        self._anim = QVariantAnimation(self)
+        self._anim.setEasingCurve(MOVE_CURVE)
+        self._anim.setDuration(SWITCH_MS)
+        self._anim.valueChanged.connect(self._set_pos)
+
+    def set_side(self, side):
+        self.side = side
+        end = 0.0 if side == "left" else 1.0
+        self._anim.stop()
+        if not self.animated:
+            self._set_pos(end)
+            return
+        self._anim.setStartValue(self._pos)
+        self._anim.setEndValue(end)
+        self._anim.start()
+
+    def _set_pos(self, v):
+        self._pos = float(v)
+        self.update()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            target = "right" if self.side == "left" else "left"
+            self.set_side(target)
+            self.requested.emit(target)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(BTN_STROKE, 1))
+        p.setBrush(BTN_BG)
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        d = r.height() - 2 * SWITCH_KNOB_PAD
+        x = r.left() + SWITCH_KNOB_PAD + (r.width() - 2 * SWITCH_KNOB_PAD - d) * self._pos
+        p.setPen(Qt.NoPen)
+        p.setBrush(BTN_TEXT)
+        p.drawEllipse(QRectF(x, r.top() + SWITCH_KNOB_PAD, d, d))
+
+
+class ConfirmOverlay(QFrame):
+    """面板正中央的深色確認浮層：ask(文字) 顯示，「確定」送出 accepted、「取消」送出 rejected；
+    淡入 EXPAND_MS、淡出 COLLAPSE_MS，淡出播完才隱藏；animated 為 False 時直接顯示與隱藏。"""
+
+    accepted = Signal()
+    rejected = Signal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("confirm")
+        self.setStyleSheet(f"QFrame#confirm {{ background: {CONFIRM_BG}; border-radius: {PANEL_RADIUS}px; }}")
+        self.animated = True
+        col = QVBoxLayout(self)
+        col.setContentsMargins(20, 16, 20, 16)
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignCenter)
+        col.addWidget(self.label)
+        row = QHBoxLayout()
+        self.ok_btn = QPushButton("確定")
+        self.cancel_btn = QPushButton("取消")
+        for b in (self.ok_btn, self.cancel_btn):
+            b.setAutoDefault(True)                      # 焦點所在的按鈕按 Enter 觸發
+        row.addWidget(self.ok_btn)
+        row.addWidget(self.cancel_btn)
+        col.addLayout(row)
+        self.ok_btn.clicked.connect(lambda: self._close(self.accepted))
+        self.cancel_btn.clicked.connect(lambda: self._close(self.rejected))
+        self._effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._effect)
+        self._anim = QPropertyAnimation(self._effect, b"opacity", self)
+        self._anim.finished.connect(self._fade_done)
+        self._closing = False
+        self.hide()
+
+    def ask(self, text):
+        self.label.setText(text)
+        self.adjustSize()
+        p = self.parentWidget()
+        self.move((p.width() - self.width()) // 2, (p.height() - self.height()) // 2)
+        self._closing = False
+        self.show()
+        self.raise_()
+        self.ok_btn.setFocus()                          # Enter＝確定
+        self._fade(1.0, EXPAND_MS, EXPAND_CURVE)
+
+    def is_open(self):
+        return self.isVisible() and not self._closing
+
+    def keyPressEvent(self, e):
+        """Enter＝確定，Esc＝取消；按鍵不再往面板傳。"""
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._close(self.accepted)
+        elif e.key() == Qt.Key_Escape:
+            self._close(self.rejected)
+        else:
+            super().keyPressEvent(e)
+
+    def cancel(self):
+        """面板收合等情況：顯示中時當作按了「取消」。"""
+        if self.isVisible() and not self._closing:
+            self._close(self.rejected)
+
+    def _close(self, signal):
+        self._closing = True
+        self._fade(0.0, COLLAPSE_MS, COLLAPSE_CURVE)
+        signal.emit()
+
+    def _fade(self, end, ms, curve):
+        self._anim.stop()
+        if not self.animated:
+            self._effect.setOpacity(end)
+            self._fade_done()
+            return
+        self._anim.setEasingCurve(curve)
+        self._anim.setDuration(ms)
+        self._anim.setStartValue(self._effect.opacity() if self.isVisible() and end == 0.0 else 0.0)
+        self._anim.setEndValue(end)
+        self._anim.start()
+
+    def _fade_done(self):
+        if self._closing:
+            self.hide()
+
+
+class LoadingButton(QPushButton):
+    """可進入 loading 的按鈕：start_loading() 換成旋轉的 loading 圈，finish(ok) 結束；
+    成功時顯示 ✓ DONE_MS 再換回原本內容，失敗時直接換回。loading 與 ✓ 期間停用。
+    morph 為 True 時膠囊先收縮成圓形（COLLAPSE_MS）再旋轉，結束時展開回膠囊（EXPAND_MS）；
+    按鈕外框大小固定，變形畫在框內。animated 為 False 時直接切換，loading 圈靜止。
+    celebrate 為 True 時（聆聽鈕）：✓ 為綠底，✓ 顯示完直接換成 ⏹（playing）；✓ 與 ⏹ 期間可按。
+    ended()（播放結束或按下停止）時，目前的 ✓ 或 ⏹ 縮小（COLLAPSE_MS，✓ 的綠底同步淡出），
+    原圖示由 0 放大（EXPAND_MS）後左右晃動（SHAKE_MS）；animated 為 False 時直接換回。"""
+
+    def __init__(self, text, morph=False, celebrate=False):
+        super().__init__(text)
+        self.morph = morph
+        self.celebrate = celebrate
+        self.animated = True
+        self.state = "idle"                             # idle、loading、closing、done、playing、returning
+        self._want_enabled = True                       # 外部要求的啟用狀態
+        self._shape = 0.0                               # 0＝膠囊，1＝圓形
+        self._angle = 0.0
+        self._ok = False
+        self._phase = None                              # 換回動畫：shrink、grow、shake
+        self._from = None                               # 縮小的圖示：check（✓）或 stop（⏹）
+        self._ret = 0.0                                 # shrink、grow 的比例；shake 的角度
+        self._shape_anim = QVariantAnimation(self)
+        self._shape_anim.valueChanged.connect(self._set_shape)
+        self._shape_anim.finished.connect(self._shape_done)
+        self._spin = QVariantAnimation(self)
+        self._spin.setStartValue(0.0)
+        self._spin.setEndValue(360.0)
+        self._spin.setDuration(SPIN_MS)
+        self._spin.setLoopCount(-1)
+        self._spin.valueChanged.connect(self._set_angle)
+        self._ret_anim = QVariantAnimation(self)
+        self._ret_anim.valueChanged.connect(self._set_ret)
+        self._ret_anim.finished.connect(self._ret_done)
+        self._done_timer = QTimer(self)
+        self._done_timer.setSingleShot(True)
+        self._done_timer.setInterval(DONE_MS)
+        self._done_timer.timeout.connect(self._after_done)
+
+    def _pressable(self):
+        return self.state == "idle" or (self.celebrate and self.state in ("done", "playing"))
+
+    def _apply_enabled(self):
+        super().setEnabled(self._want_enabled and self._pressable())
+
+    def setEnabled(self, on):
+        self._want_enabled = on
+        self._apply_enabled()
+
+    def start_loading(self):
+        self._done_timer.stop()
+        self._stop_return()
+        self.state = "loading"
+        self._apply_enabled()
+        self._angle = 0.0
+        if self.morph and self.animated:
+            self._animate_shape(1.0, COLLAPSE_MS, COLLAPSE_CURVE)
+        else:
+            self._shape_anim.stop()
+            self._shape = 1.0 if self.morph else 0.0
+            self._shape_done()
+        self.update()
+
+    def finish(self, ok):
+        """結束 loading；不在 loading 時不動作。"""
+        if self.state != "loading":
+            return
+        self._spin.stop()
+        self._ok = ok
+        self.state = "closing"
+        if self.morph and self.animated:
+            self._animate_shape(0.0, EXPAND_MS, EXPAND_CURVE)
+        else:
+            self._shape_anim.stop()
+            self._shape = 0.0
+            self._shape_done()
+        self.update()
+
+    def ended(self):
+        """播放結束或按下停止：✓ 或 ⏹ 換回原圖示；其他狀態不動作。"""
+        if self.state == "done" and self.celebrate:
+            self._done_timer.stop()
+            self._begin_return("check")
+        elif self.state == "playing":
+            self._begin_return("stop")
+
+    def _animate_shape(self, end, ms, curve):
+        self._shape_anim.stop()
+        self._shape_anim.setEasingCurve(curve)
+        self._shape_anim.setDuration(ms)
+        self._shape_anim.setStartValue(self._shape)
+        self._shape_anim.setEndValue(end)
+        self._shape_anim.start()
+
+    def _set_shape(self, v):
+        self._shape = float(v)
+        self.update()
+
+    def _set_angle(self, v):
+        self._angle = float(v)
+        self.update()
+
+    def _shape_done(self):
+        if self.state == "loading":                     # 收縮完成：開始旋轉
+            if self.animated:
+                self._spin.start()
+        elif self.state == "closing":                   # 展開完成：成功顯示 ✓，失敗換回
+            if self._ok:
+                self.state = "done"
+                self._apply_enabled()
+                self._done_timer.start()
+            else:
+                self._to_idle()
+        self.update()
+
+    def _after_done(self):
+        """✓ 顯示完：聆聽鈕換成 ⏹，其他按鈕換回。"""
+        if self.celebrate:
+            self.state = "playing"
+            self._apply_enabled()
+            self.update()
+        else:
+            self._to_idle()
+
+    def _to_idle(self):
+        self.state = "idle"
+        self._apply_enabled()
+        self.update()
+
+    def _begin_return(self, glyph):
+        if not self.animated:
+            self._to_idle()
+            return
+        self.state = "returning"
+        self._from = glyph
+        self._apply_enabled()
+        self._run_phase("shrink")
+
+    def _run_phase(self, phase):
+        a = self._ret_anim
+        a.stop()
+        a.setKeyValues([])                              # 清掉上一段（晃動）的關鍵影格
+        self._phase = phase
+        if phase == "shake":
+            a.setEasingCurve(QEasingCurve.Linear)
+            a.setDuration(SHAKE_MS)
+            a.setStartValue(0.0)
+            for t, deg in SHAKE_KEYS:
+                a.setKeyValueAt(t, float(deg))
+        else:
+            shrink = phase == "shrink"
+            a.setEasingCurve(COLLAPSE_CURVE if shrink else EXPAND_CURVE)
+            a.setDuration(COLLAPSE_MS if shrink else EXPAND_MS)
+            a.setStartValue(1.0 if shrink else 0.0)
+            a.setEndValue(0.0 if shrink else 1.0)
+        self._ret = a.startValue()
+        a.start()
+        self.update()
+
+    def _set_ret(self, v):
+        self._ret = float(v)
+        self.update()
+
+    def _ret_done(self):
+        if self._phase == "shrink":
+            QPushButton.setEnabled(self, self._want_enabled)     # 🔊 開始放大起即可再按
+            self._run_phase("grow")
+        elif self._phase == "grow":
+            self._run_phase("shake")
+        elif self._phase == "shake":
+            self._phase = None
+            self._to_idle()
+
+    def _stop_return(self):
+        self._ret_anim.stop()
+        self._phase = None
+
+    def paintEvent(self, e):
+        if self.state == "idle":
+            super().paintEvent(e)
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        h = r.height()
+        if self.state in ("returning", "playing"):
+            self._paint_bg(p, r)
+            if self.state == "playing":
+                self._paint_scaled(p, r, 1.0, 0.0, STOP_ICON)
+            else:
+                self._paint_return(p, r)
+            return
+        w = r.width() - (r.width() - h) * self._shape    # 膠囊寬度往圓形（寬＝高）縮
+        self._paint_bg(p, QRectF(r.center().x() - w / 2, r.top(), w, h))
+        if self.state == "loading" and (self._shape >= 1.0 or not self.morph):
+            d = h - 2 * SPIN_INSET
+            arc = QRectF(r.center().x() - d / 2, r.center().y() - d / 2, d, d)
+            p.setPen(QPen(BTN_TEXT, SPIN_PEN, Qt.SolidLine, Qt.RoundCap))
+            p.setBrush(Qt.NoBrush)
+            p.drawArc(arc, int(-self._angle * 16), SPIN_SPAN * 16)
+        elif self.state == "done":
+            if self.celebrate:
+                self._paint_check(p, r, 1.0)
+            else:
+                p.setPen(BTN_TEXT)
+                p.drawText(self.rect(), Qt.AlignCenter, "\u2713")
+
+    def _paint_bg(self, p, shape):
+        p.setPen(QPen(BTN_STROKE, 1))
+        p.setBrush(BTN_BG)
+        p.drawRoundedRect(shape, shape.height() / 2, shape.height() / 2)
+
+    def _paint_check(self, p, r, s):
+        """綠底 ✓，大小與綠底不透明度乘上比例 s。"""
+        bg = QColor(DONE_BG)
+        bg.setAlphaF(DONE_BG_ALPHA * s)
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        self._paint_scaled(p, r, s, 0.0, "\u2713")
+
+    def _paint_scaled(self, p, r, s, deg, text):
+        """以 r 中心縮放 s、旋轉 deg 度畫 text。"""
+        if s <= 0:
+            return
+        p.save()
+        c = r.center()
+        p.translate(c)
+        p.rotate(deg)
+        p.scale(s, s)
+        p.translate(-c)
+        p.setPen(BTN_TEXT)
+        p.drawText(self.rect(), Qt.AlignCenter, text)
+        p.restore()
+
+    def _paint_return(self, p, r):
+        """換回動畫：✓ 或 ⏹ 縮小（✓ 的綠底同步淡出），原圖示放大，左右晃動。"""
+        if self._phase == "shrink":
+            if self._from == "check":
+                self._paint_check(p, r, self._ret)
+            else:
+                self._paint_scaled(p, r, self._ret, 0.0, STOP_ICON)
+        elif self._phase == "grow":
+            self._paint_scaled(p, r, self._ret, 0.0, self.text())
+        else:
+            self._paint_scaled(p, r, 1.0, self._ret, self.text())
+
+
 class TextButtons(QWidget):
     """文字框右下角由左到右的聆聽、複製、Google 搜索三個圖示鈕，原文框與譯文框共用；
     疊在框 box 上，跟著框與框內文字輸入 edit 的大小移動；edit 為空時隱藏。
@@ -219,8 +636,8 @@ class TextButtons(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(LISTEN_MARGIN)
-        self.listen_btn, self.copy_btn, self.search_btn = (
-            QPushButton(icon) for icon in ("\U0001F50A", "\u29C9", "\U0001F50D"))
+        self.listen_btn = LoadingButton("\U0001F50A", celebrate=True)    # 聆聽：按下後 loading，開始播放時 ✓
+        self.copy_btn, self.search_btn = (QPushButton(icon) for icon in ("\u29C9", "\U0001F50D"))
         for b, tip in ((self.listen_btn, "聆聽"), (self.copy_btn, "複製"), (self.search_btn, "Google 搜索")):
             b.setObjectName("icon")
             b.setToolTip(tip)
@@ -525,11 +942,13 @@ class Panel(QWidget):
     screen_changed = Signal(object)              # 設定頁選的 QScreen
     animation_changed = Signal(bool)             # 設定頁的動畫開關
     listen_requested = Signal(str)               # 要聆聽的文字
-    listen_stop_requested = Signal()             # 停止聆聽（清除鈕）
+    listen_stop_requested = Signal()             # 停止聆聽（清除鈕、⏹）
+    side_changed = Signal(str)                   # 設定頁確認後的面板位置："left"／"right"
 
     def __init__(self, screen, cfg):
         super().__init__(None, TOP_FLAGS)
         self.screen_geo = screen.geometry()
+        self.side = cfg["side"]                         # 面板位置："left"／"right"
         self.use_acrylic = platform_win.IS_WIN
         if not self.use_acrylic:
             self.setAttribute(Qt.WA_TranslucentBackground)
@@ -537,7 +956,7 @@ class Panel(QWidget):
         self.setStyleSheet("QWidget#glassPanel { background: transparent; }")
         self.acrylic = False
         self._acrylic_tried = False
-        self.inner = QWidget(self)                      # 固定全寬、靠左，視窗變寬時露出來
+        self.inner = QWidget(self)                      # 固定全寬，貼面板位置的反側，視窗變寬時露出來
         self.inner.setGeometry(0, 0, PANEL_W, PANEL_H)
         box = QVBoxLayout(self.inner)
         title = QLabel("Gamersive-Translate")
@@ -561,10 +980,10 @@ class Panel(QWidget):
         self.input_box = SourceBox("輸入原文，Enter 翻譯，Shift+Enter 換行")    # 文字翻譯頁上方：原文框
         self.input = self.input_box.edit                # 原文
         self.listen_btn = self.input_box.btns.listen_btn    # 原文框右下角：聆聽、複製、Google 搜索
-        self.input_box.btns.listen_requested.connect(lambda text: self._listen(0, text))
+        self.input_box.btns.listen_requested.connect(lambda text: self._listen(0, text, self.listen_btn))
         self.roman = self.input_box.roman               # 原文框內、原文下方：該次送出原文的拼音
         self.clear_btn = QPushButton("清除")             # 「翻譯」鈕左邊：清空這一頁
-        self.translate_btn = QPushButton("翻譯")
+        self.translate_btn = LoadingButton("翻譯", morph=True)
         row = QHBoxLayout()
         row.addLayout(langs, 1)
         row.addWidget(self.clear_btn)
@@ -573,7 +992,7 @@ class Panel(QWidget):
         self.output.setReadOnly(True)
         self.output.setFocusPolicy(Qt.ClickFocus)
         self.output_btns = TextButtons(self.output, self.output)    # 譯文框右下角：聆聽、複製、Google 搜索
-        self.output_btns.listen_requested.connect(lambda text: self._listen(0, text))
+        self.output_btns.listen_requested.connect(lambda text: self._listen(0, text, self.output_btns.listen_btn))
         text_box.addWidget(self.input_box, 1)
         text_box.addLayout(row)
         text_box.addWidget(self.output, 1)
@@ -607,11 +1026,25 @@ class Panel(QWidget):
         self.animation_btn.setCheckable(True)
         self.animation_btn.setChecked(cfg["animation"])
         self.animated = cfg["animation"]
+        self.loading_btns = [self.translate_btn, self.ocr_translate_btn, self.capture_btn, self.listen_btn,
+                             self.output_btns.listen_btn, self.ocr_listen_btn, self.ocr_output_btns.listen_btn]
+        for b in self.loading_btns:
+            b.animated = self.animated
         self.animation_btn.toggled.connect(self._animation_toggled)
         screen_row = QHBoxLayout()
         screen_row.addWidget(self.screen_box, 1)
         screen_row.addWidget(self.animation_btn)
         settings.addLayout(screen_row)
+        self.side_switch = SideSwitch(self.side)        # 面板位置：圓鈕在左＝左側、在右＝右側
+        self.side_switch.animated = self.animated
+        self.side_switch.requested.connect(self._side_requested)
+        side_row = QHBoxLayout()
+        side_row.addWidget(QLabel("面板位置"))
+        side_row.addStretch(1)
+        side_row.addWidget(QLabel(SIDE_NAMES["left"]))
+        side_row.addWidget(self.side_switch)
+        side_row.addWidget(QLabel(SIDE_NAMES["right"]))
+        settings.addLayout(side_row)
         self.font_box = QFontComboBox()                 # 字型：系統字型
         self.font_box.setCurrentFont(QFont(cfg["font_family"]))
         self.font_box.currentFontChanged.connect(self._font_selected)
@@ -663,12 +1096,19 @@ class Panel(QWidget):
         self.custom_btn.clicked.connect(self._custom_capture)
         self._target_output = self.output                # 翻譯結果要顯示的譯文框
         self._ocr_pending = False                       # 辨識完成時有翻譯進行中，OCR 翻譯待送出
+        self._translating = None                        # 翻譯進行中時為送出那一頁的翻譯鈕
         self._listen_page = None                        # 最近一次聆聽來自哪一頁（分頁編號）
+        self._listen_btn = None                         # 最近一次按下的聆聽鈕
         self.setFocusPolicy(Qt.StrongFocus)
         self._width = 0
         self._anim = QVariantAnimation(self)
         self._anim.valueChanged.connect(self._step)
         self._anim.finished.connect(self.animation_done)
+        self.confirm = ConfirmOverlay(self.inner)       # 面板正中央的確認浮層，最後建立才疊在最上層
+        self.confirm.animated = self.animated
+        self._lockable = [*self.tabs, self.engine_box, self.stack]  # 確認浮層顯示期間停用
+        self.confirm.accepted.connect(lambda: (self._set_locked(False), self.side_changed.emit(self.side_switch.side)))
+        self.confirm.rejected.connect(lambda: (self._set_locked(False), self.side_switch.set_side(self.side)))
         self._ensure_acrylic()                          # 啟動時先套 Acrylic，第一次展開不再等待
 
     def _lang_row(self, box):
@@ -692,7 +1132,7 @@ class Panel(QWidget):
         self.grid_btn = QPushButton("九宮格")
         self.grid_popup = GridPopup(self.grid_btn)
         self.grid_btn.clicked.connect(self._open_grid)
-        self.capture_btn = QPushButton("截圖")
+        self.capture_btn = LoadingButton("截圖", morph=True)
         self.custom_btn = QPushButton("自訂框選")
         region_row.addWidget(self.region_box)
         region_row.addWidget(self.grid_btn)
@@ -702,10 +1142,10 @@ class Panel(QWidget):
         self.ocr_input_box = SourceBox("截圖後顯示辨識出的原文，可修改後 Enter 重新翻譯")   # OCR 頁上方：原文框
         self.ocr_input = self.ocr_input_box.edit        # 辨識出的原文
         self.ocr_listen_btn = self.ocr_input_box.btns.listen_btn    # 原文框右下角：聆聽、複製、Google 搜索
-        self.ocr_input_box.btns.listen_requested.connect(lambda text: self._listen(1, text))
+        self.ocr_input_box.btns.listen_requested.connect(lambda text: self._listen(1, text, self.ocr_listen_btn))
         self.ocr_roman = self.ocr_input_box.roman       # 原文框內、原文下方：該次送出原文的拼音
         self.ocr_clear_btn = QPushButton("清除")         # 「翻譯」鈕左邊：清空這一頁
-        self.ocr_translate_btn = QPushButton("翻譯")
+        self.ocr_translate_btn = LoadingButton("翻譯", morph=True)
         row = QHBoxLayout()
         row.addLayout(self._lang_row(self.ocr_target_box), 1)
         row.addWidget(self.ocr_clear_btn)
@@ -714,7 +1154,8 @@ class Panel(QWidget):
         self.ocr_output.setReadOnly(True)
         self.ocr_output.setFocusPolicy(Qt.ClickFocus)
         self.ocr_output_btns = TextButtons(self.ocr_output, self.ocr_output)    # 譯文框右下角：聆聽、複製、Google 搜索
-        self.ocr_output_btns.listen_requested.connect(lambda text: self._listen(1, text))
+        self.ocr_output_btns.listen_requested.connect(
+            lambda text: self._listen(1, text, self.ocr_output_btns.listen_btn))
         col.addLayout(region_row)
         col.addWidget(self.ocr_input_box, 1)
         col.addLayout(row)
@@ -745,6 +1186,7 @@ class Panel(QWidget):
 
     def _capture(self):
         self.set_capture_enabled(False)                 # 截圖與辨識完成前不重複送出
+        self.capture_btn.start_loading()
         # 有選格子時用九宮格，全部未選時用下拉清單的區域（capture.crop_box 以 cells 優先）
         self.capture_requested.emit(self.region_box.currentData(), set(self.grid_popup.cells))
 
@@ -764,17 +1206,23 @@ class Panel(QWidget):
         self.activateWindow()
         platform_win.bring_to_foreground(int(self.winId()))
 
+    def capture_loading(self):
+        """自訂框選按 ✓ 後：截圖鈕進入 loading。"""
+        self.capture_btn.start_loading()
+
     def show_ocr_result(self, blocks):
-        """辨識完成（UI 執行緒）：文字區塊以換行串成原文，自動翻譯。"""
+        """辨識完成（UI 執行緒）：截圖鈕顯示 ✓，文字區塊以換行串成原文，自動翻譯。"""
         self.set_capture_enabled(True)
+        self.capture_btn.finish(True)
         self.ocr_input.setPlainText("\n".join(blocks))
-        if not self.translate_btn.isEnabled():          # 前一筆翻譯回來後再送出
+        if self._translating is not None:               # 前一筆翻譯回來後再送出
             self._ocr_pending = True
             return
         self._submit(self.ocr_input, self.ocr_output, True)
 
     def show_ocr_error(self, reason):
         self.set_capture_enabled(True)
+        self.capture_btn.finish(False)
         self._show_status(f"OCR 失敗：{reason}")
 
     def _show_status(self, text, ok=False):
@@ -813,8 +1261,29 @@ class Panel(QWidget):
         if self._width > 0:
             self._step(self._width)                     # 展開中立即移到新螢幕
 
+    def _side_requested(self, target):
+        """開關圓鈕滑到 target 側：在面板正中央詢問是否切換。"""
+        self._set_locked(True)
+        self.confirm.ask(f"切換到{SIDE_NAMES[target]}？")
+
+    def _set_locked(self, on):
+        """確認浮層顯示期間：分頁列、引擎選單、分頁內容停用；關閉時恢復。"""
+        for w in self._lockable:
+            w.setEnabled(not on)
+
+    def set_side(self, side):
+        """面板改貼 side 緣；展開中立即移過去。"""
+        self.side = side
+        if self._width > 0:
+            self._step(self._width)
+        self.update()
+
     def _animation_toggled(self, on):
         self.animated = on
+        for b in self.loading_btns:
+            b.animated = on
+        self.side_switch.animated = on
+        self.confirm.animated = on
         self.animation_changed.emit(on)
 
     def check_fullscreen(self):
@@ -851,10 +1320,36 @@ class Panel(QWidget):
         platform_win.bring_to_foreground(int(self.winId()))
         self.input.setFocus()
 
-    def _listen(self, page, text):
-        """page 頁（分頁編號）按了聆聽：記下來源頁，送出 listen_requested。"""
+    def _listen(self, page, text, btn):
+        """page 頁（分頁編號）按了聆聽鈕 btn。btn 顯示 ✓ 或 ⏹ 時：送出 listen_stop_requested 並換回 🔊。
+        其他時候：前一顆聆聽鈕換回 🔊，btn 進入 loading，記下來源頁與按鈕，送出 listen_requested。"""
+        if btn is self._listen_btn and btn.state in ("done", "playing"):
+            self.listen_stop_requested.emit()
+            btn.ended()
+            return
+        if self._listen_btn is not None:
+            self._listen_btn.finish(False)
+            self._listen_btn.ended()
         self._listen_page = page
+        self._listen_btn = btn
+        btn.start_loading()
         self.listen_requested.emit(text)
+
+    def listen_started(self):
+        """語音開始播放：聆聽鈕顯示 ✓。"""
+        if self._listen_btn is not None:
+            self._listen_btn.finish(True)
+
+    def listen_failed(self):
+        """聆聽失敗：聆聽鈕換回 🔊。"""
+        if self._listen_btn is not None:
+            self._listen_btn.finish(False)
+            self._listen_btn.ended()
+
+    def listen_ended(self):
+        """語音播放結束：聆聽鈕的 ✓ 或 ⏹ 換回 🔊。"""
+        if self._listen_btn is not None:
+            self._listen_btn.ended()
 
     def _clear(self, page, edit, output):
         """清除鈕：清空 page 頁（分頁編號）的原文框 edit 與譯文框 output；
@@ -863,6 +1358,7 @@ class Panel(QWidget):
         output.clear()
         if self._listen_page == page:
             self.listen_stop_requested.emit()
+            self.listen_failed()
 
     def _clear_text(self):
         """文字翻譯頁的清除鈕：清空原文、譯文與拼音。"""
@@ -876,7 +1372,9 @@ class Panel(QWidget):
 
     def _submit(self, edit, output, by_line):
         text = edit.toPlainText().strip()
-        if text and self.translate_btn.isEnabled():     # 翻譯中不重複送出（兩頁一次只翻一筆）
+        if text and self._translating is None:          # 翻譯中不重複送出（兩頁一次只翻一筆）
+            self._translating = self.translate_btn if output is self.output else self.ocr_translate_btn
+            self._translating.start_loading()
             self.translate_btn.setEnabled(False)
             self.ocr_translate_btn.setEnabled(False)
             self.clear_btn.setEnabled(False)            # 翻譯進行中不清除
@@ -886,7 +1384,9 @@ class Panel(QWidget):
 
     def show_result(self, result, roman=""):
         """翻譯完成（UI 執行緒）：成功顯示譯文與原文的拼音 roman（空字串時隱藏拼音區），
-        失敗在底部短暫顯示引擎與原因。"""
+        失敗在底部短暫顯示引擎與原因。送出那一頁的翻譯鈕成功時顯示 ✓，失敗直接換回。"""
+        self._translating.finish(result.error is None)
+        self._translating = None
         self.translate_btn.setEnabled(True)
         self.ocr_translate_btn.setEnabled(True)
         self.clear_btn.setEnabled(True)
@@ -902,6 +1402,7 @@ class Panel(QWidget):
             self._submit(self.ocr_input, self.ocr_output, True)
 
     def play_collapse(self):
+        self.confirm.cancel()                           # 確認浮層顯示中收合時當作取消
         self._slide_to(0, COLLAPSE_MS, COLLAPSE_CURVE)
 
     def _slide_to(self, end, full_ms, curve):
@@ -929,10 +1430,17 @@ class Panel(QWidget):
             self.hide()                                 # 收合播完才隱藏
             return
         g = self.screen_geo
-        self.setGeometry(g.x() + g.width() - self._width, g.y() + (g.height() - PANEL_H) // 2,
+        self.setGeometry(edge_x(g, self.side, self._width), g.y() + (g.height() - PANEL_H) // 2,
                          self._width, PANEL_H)
+        self.inner.move(self._inner_x(), 0)            # 左側時內容貼視窗右緣，看起來從左緣滑出
+
+    def _inner_x(self):
+        return self._width - PANEL_W if self.side == "left" else 0
 
     def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape and self.confirm.is_open():   # 確認浮層顯示中：Esc 只取消浮層
+            self.confirm.cancel()
+            return
         if e.key() == Qt.Key_Escape:
             self.esc_pressed.emit()
             return
@@ -961,7 +1469,7 @@ class Panel(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        r = QRectF(0, 0, PANEL_W, PANEL_H).adjusted(0.5, 0.5, -0.5, -0.5)
+        r = QRectF(self._inner_x(), 0, PANEL_W, PANEL_H).adjusted(0.5, 0.5, -0.5, -0.5)
         path = QPainterPath()
         path.addRoundedRect(r, PANEL_RADIUS, PANEL_RADIUS)
         if self.use_acrylic:

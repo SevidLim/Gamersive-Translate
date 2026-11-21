@@ -21,6 +21,7 @@ DEFAULTS = {
     "ollama_model": "",
     "screen": "",                               # 面板所在螢幕的 QScreen.name()，空字串＝主螢幕
     "animation": True,                          # 動畫開關
+    "side": "right",                            # 面板位置：螢幕右緣 "right" 或左緣 "left"
     "font_family": "",                          # 全程式字型，空字串＝QApplication 目前預設字型
     "font_size": 14,                            # 全程式文字大小（pt），8–24
 }
