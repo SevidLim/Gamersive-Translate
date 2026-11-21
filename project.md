@@ -79,12 +79,79 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 | 截圖 | dxcam（DXGI Desktop Duplication），擷取工具所在螢幕 |
 | OCR 主引擎 | Surya（surya-ocr 0.23.0）：文字偵測以 torch 在 CPU 執行；辨識由 llama.cpp b11669 CUDA 12.4 版 llama-server 在 GPU 執行，模型 surya-2.5.gguf 與 surya-2.5-mmproj.gguf，取自 Hugging Face 本機快取 C:\Users\User\.cache\huggingface\hub，HF_HUB_OFFLINE=1 不連網；整頁辨識後，surya 標為 Figure、Image、Diagram 的區塊改以 Text 標籤用 surya 區塊模式再辨識；llama-server 輸出附加寫入 %LOCALAPPDATA%\Gamersive-Translate\llama-server.log |
 | OCR 備用引擎 | RapidOCR 3.10.0（ONNX Runtime CPU）：PP-OCRv5 mobile、PP-OCRv6 small；模型檔在 .venv\Lib\site-packages\rapidocr\models\ |
-| OCR 引擎選擇 | OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」時啟動、辨識完關閉 |
+| OCR 引擎選擇 | OCR 頁預設使用 Surya（GPU），不論畫面語言；Surya 無法使用時依序改用 RapidOCR PP-OCRv5 mobile（預設模型）、PP-OCRv6 small；llama-server 位於專案根目錄 llama.cpp-cuda/（已列入 .gitignore），每次按「截圖」或自訂框選按 ✓ 時啟動、辨識完關閉 |
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 | 聆聽 | 語言偵測用 Google Cloud Translation Basic（v2）的 detect，API key 為 google_api_key；Windows 有該語言語音時用 QtTextToSpeech；其餘用 OpenAI 語音：POST {openai_base_url}/audio/speech，Authorization: Bearer {openai_api_key}，model gpt-4o-mini-tts、voice alloy、mp3，以 QtMultimedia 播放 |
 | 拼音 | uroman 1.3.1.1，本機執行 |
 
 ### 視覺規格
+
+材質：
+
+- 面板為 Windows Acrylic 毛玻璃，上疊 #14141A、不透明度 0.30；外框 1px 白色 0.16，圓角 16px。
+- Acrylic 開啟失敗時，整個視窗矩形填不透明底 rgb(20,20,26)（直角）。非 Windows 時，圓角範圍填 rgb(20,20,26)、不透明度 0.86。
+
+色彩：
+
+| 項目 | 值 |
+|---|---|
+| 文字 | #f2f2f5；拼音 #f2f2f5 0.55 |
+| 輸入欄位、下拉選單、數字框底 | 白 0.08，邊框白 0.16，focus 邊框 0.40 |
+| 按鈕底 | 白 0.14，邊框白 0.20；hover 0.22；選取底 0.34、邊框 0.50；停用文字 0.45 |
+| 文字選取底 | 白 0.30 |
+| 邊條 | 白 0.35 |
+| 深色浮層 | rgb(32,32,40) 0.80：下拉選項清單、九宮格、「已複製」氣泡；確認浮層 0.93 |
+| 九宮格 | 格線與外框白 0.20，選取格白 0.34 |
+| 拼音區上緣虛線 | 1px，#f2f2f5 0.35 |
+| 自訂框選 | 框外黑 0.47，選取框線與控制點白 0.86 |
+| 失敗訊息 | 底 rgba(120,20,20,0.55)，字 #ffd7d7 |
+| 成功訊息 | 底 rgba(20,110,50,0.55)，字 #d7ffdf |
+| 聆聽鈕 ✓ | 底 #A5CF83 0.80 |
+
+圓角：
+
+| 半徑 | 用途 |
+|---|---|
+| 15px（總高 32px） | QSS 按鈕膠囊、圖示鈕（32x32 呈圓形） |
+| 高度的一半 | loading 按鈕變形中的膠囊與圓形、面板位置開關軌道 |
+| 16px | 面板、確認浮層 |
+| 11px | 輸入欄位、原文框、下拉選單、數字框、底部訊息、「已複製」氣泡 |
+| 直角 | 九宮格浮層 |
+
+尺寸與間距：
+
+- 控制項總高 32px，同一列等高。
+- 輸入欄位內距上下 6px、左右 8px；下拉選單與數字框左右內距 8px；按鈕左右內距 16px。
+- 圖示鈕 32x32，與框邊及彼此間距 6px。
+- 底部訊息與氣泡內距上下 6px、左右 10px；確認浮層內距左右 20px、上下 16px。
+- 面板位置開關軌道 44x24，圓鈕與軌道邊距 3px。
+- 九宮格每格 32px。
+
+動畫時長：
+
+| 動作 | 時長 |
+|---|---|
+| 面板展開 | 250ms（中途反向時依剩餘距離比例縮短） |
+| 面板收合 | 150ms |
+| 確認浮層淡入／淡出 | 250ms／150ms |
+| 「截圖」「翻譯」鈕收縮／展開 | 150ms／250ms |
+| 面板位置開關圓鈕滑動 | 180ms |
+
+- 收合比展開快。
+- 收合播完才隱藏。
+- 重複觸發時取消前一次。
+- 設定頁「動畫」關閉時立即切換狀態。
+- 新功能加入動畫時同時處理動畫關閉的路徑。
+
+緩動曲線：
+
+| 情境 | 曲線 |
+|---|---|
+| 進場 | cubic-bezier(0.16, 1, 0.3, 1) |
+| 位移 | cubic-bezier(0.2, 0.9, 0.3, 1) |
+| 退場 | cubic-bezier(0.4, 0, 0.9, 0.35) |
+
+### 視覺規格（日後討論）
 
 材質：所有浮層為半透明底加背景模糊。
 
@@ -94,23 +161,13 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 | 浮出面板（資料夾、新增視窗） | `--panel` | 26px |
 | 深色浮層（emoji 選單、目標選單、確認面板） | 固定深灰 0.80–0.93 | 16–22px |
 
-- 浮層疊在浮層上時，上層用固定深色，不跟隨主題變數，層次靠明度差拉開。
+- 浮層疊在浮層上時，上層用固定深色，不跟隨主題變數。
 
 色彩：
 
-- 前景色由桌布平均亮度決定，寫入 `--text`，並以 `data-ink` 切換面板底色的明暗方向。
-- 刪除確認面板與各類深色浮層固定深底白字，不隨 `data-ink` 變動。
+- 前景色由桌布平均亮度決定，寫入 `--text`，並以 `data-ink` 切換面板底色的明暗方向；深色浮層固定深底白字，不隨 `data-ink` 變動。
 
-圓角：
-
-| 尺度 | 用途 |
-|---|---|
-| 999px | 膠囊：搜尋框、切換鈕、按鈕、dock 面板 |
-| 16–18px | 面板與磚塊 |
-| 10–12px | 輸入欄位、選單項目 |
-| 50% | 圓形按鈕與圖示底 |
-
-尺寸：所有重複出現的尺寸集中為 CSS 變數，不散落魔術數字。
+尺寸：所有重複出現的尺寸集中為 CSS 變數。
 
 | 變數 | 用途 |
 |---|---|
@@ -118,32 +175,15 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 | `--add-row` `--add-ctl` | 新增視窗欄位與控制項 |
 | `--radius` | 面板圓角 |
 
-- 同一列的控制項高度必須相等，靠變數鎖定而非個別調整 padding。
-
-動畫時長：
+動畫：
 
 | 動作 | 時長 |
 |---|---|
-| 浮層展開 | 250ms |
-| 浮層收合 | 140–160ms |
-| 位移與讓位 | 160–200ms |
 | 微互動（hover、色彩） | 120–160ms |
 
 - 從觸發點長出來：變形原點對準觸發元素中心。
 - 只動該動的：未受影響的元素保持靜止。
-- 收合一律比展開快。
-- 展開與收合成對，收合播完才隱藏。
-- 可中斷：動畫保留 handle，重複觸發時取消前一次。
-- 動畫可整體關閉：關閉時所有 duration 與 delay 歸零，JS 端跳過 `Element.animate()` 並改為立即切換狀態。
-- 新功能加入動畫時必須同時處理關閉路徑。
-
-緩動曲線：
-
-| 情境 | 曲線 |
-|---|---|
-| 進場 | cubic-bezier(0.16, 1, 0.3, 1) |
-| 位移 | cubic-bezier(0.2, 0.9, 0.3, 1) |
-| 退場 | ease-in 或 cubic-bezier(0.4, 0, 0.9, 0.35) |
+- 動畫關閉時 JS 端跳過 `Element.animate()`。
 
 ### 支援的遊戲顯示模式
 
@@ -193,8 +233,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 | Ollama | endpoint（預設 http://localhost:11434）、model | ollama_endpoint、ollama_model |
 
 - 設定欄位 placeholder 為英文，其他介面文字為中文。
-- 下拉選單的選項清單為不透明深色底。
-- 輸入欄位圓角 11px、半透明底；按鈕膠囊形，圓角半徑為按鈕高度的一半。
+- 下拉選單的選項清單為深色底 rgb(32,32,40) 0.80。
+- 輸入欄位圓角 11px、半透明底；按鈕膠囊形，圓角 15px、總高 32px。
 
 ### 圖示鈕、聆聽與拼音
 
