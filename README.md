@@ -2,14 +2,14 @@
 
 ## 簡介 / Introduction
 
-Gamersive-Translate 是 Windows 上的遊戲內翻譯工具。平時收在螢幕右緣，需要時展開面板，翻譯輸入的文字或擷取遊戲畫面辨識後翻譯。
+Gamersive-Translate 是 Windows 上的遊戲內翻譯工具。平時收在螢幕右緣或左緣，需要時展開面板，翻譯輸入的文字或擷取遊戲畫面辨識後翻譯。
 
-Gamersive-Translate is an in-game translation tool for Windows. It stays at the right edge of the screen and opens a panel when needed to translate typed text or recognize and translate text captured from the game screen.
+Gamersive-Translate is an in-game translation tool for Windows. It stays at the right or left edge of the screen and opens a panel when needed to translate typed text or recognize and translate text captured from the game screen.
 
 ## 功能 / Features
 
-- 邊條與面板：滑鼠停在螢幕右緣的邊條上，或用 Alt+Tab 切到本程式，即展開面板；點其他視窗、Alt+Tab 切走或按 Esc 收合。
-  Strip and panel: hover over the strip at the right edge of the screen, or Alt+Tab to the app, to open the panel; click another window, Alt+Tab away, or press Esc to close it.
+- 邊條與面板：滑鼠停在螢幕右緣（或左緣）的邊條上，或用 Alt+Tab 切到本程式，即展開面板；點其他視窗、Alt+Tab 切走或按 Esc 收合。
+  Strip and panel: hover over the strip at the right (or left) edge of the screen, or Alt+Tab to the app, to open the panel; click another window, Alt+Tab away, or press Esc to close it.
 - 文字翻譯頁：輸入原文，按 Enter 翻譯。
   Text page: type the source text and press Enter to translate.
 - 目標語言：文字翻譯頁與 OCR 頁各自選擇繁體中文或英文（美國）。
@@ -57,13 +57,13 @@ Settings are stored in `%LOCALAPPDATA%\Gamersive-Translate\config.json` and are 
 | OpenAI 相容 / OpenAI-compatible | base URL、API key、model |
 | Ollama | endpoint、model |
 
-設定頁另可選擇螢幕、開關動畫、選擇字型與大小。
-The Settings tab also lets you choose the screen, turn animations on or off, and pick the font and size.
+設定頁另可選擇螢幕、開關動畫、切換面板位置（左側／右側）、選擇字型與大小。
+The Settings tab also lets you choose the screen, turn animations on or off, switch the panel side (left or right), and pick the font and size.
 
 ## 使用方式 / Usage
 
-1. 啟動後，滑鼠停在螢幕右緣的邊條上，或用 Alt+Tab 切到「Gamersive-Translate」，展開面板。
-   After starting, hover over the strip at the right edge of the screen, or Alt+Tab to "Gamersive-Translate", to open the panel.
+1. 啟動後，滑鼠停在螢幕右緣（或左緣）的邊條上，或用 Alt+Tab 切到「Gamersive-Translate」，展開面板。
+   After starting, hover over the strip at the right (or left) edge of the screen, or Alt+Tab to "Gamersive-Translate", to open the panel.
 2. 文字翻譯頁：輸入原文，按 Enter 或「翻譯」；Shift+Enter 換行；「清除」清空這一頁。
    Text page: type the source text and press Enter or "翻譯" (Translate); Shift+Enter inserts a new line; "清除" (Clear) empties the page.
 3. OCR 頁：選擇截圖區域或九宮格後按「截圖」，或按「自訂框選」拖出範圍後按 ✓；辨識出的原文可修改後按 Enter 重新翻譯。
