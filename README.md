@@ -44,7 +44,8 @@ In the virtual environment `.venv` in the project root (PowerShell):
 | 安裝套件 / Install packages | `.venv\Scripts\python -m pip install -r requirements.txt` |
 | 啟動 / Run | `.venv\Scripts\python -m gt` |
 | 測試 / Test | `.venv\Scripts\python -m pytest` |
-| 結束 / Quit | 終端機按 Ctrl+C / Press Ctrl+C in the terminal |
+| 結束 / Quit | 終端機按 Ctrl+C，或系統匣圖示右鍵「結束」 / Press Ctrl+C in the terminal, or right-click the tray icon and choose "結束" (Quit) |
+| 建置 exe / Build exe | `.\build.ps1`（輸出 / output: `build\Gamersive-Translate.dist\Gamersive-Translate.exe`） |
 
 ## 設定 / Configuration
 

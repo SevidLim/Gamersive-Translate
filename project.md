@@ -25,7 +25,7 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 
 步驟 2 的 handoff 不執行。
 
-步驟 5 的實作票 #2–#8 已實作並關閉；目前在 master 上依使用者要求進行 UX 調整，每項調整照下方收尾順序的第 2–7 步進行，commit 訊息不帶 `Closes`。
+步驟 5 的實作票 #2–#8 已實作並關閉；目前在 master 上依使用者要求進行 UX 調整與打包，每項照下方收尾順序的第 2–7 步進行，commit 訊息不帶 `Closes`。
 
 步驟 5 實作規則：
 
@@ -64,7 +64,9 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 | 啟動 | .venv\Scripts\python -m gt |
 | 安裝套件 | .venv\Scripts\python -m pip install -r requirements.txt |
 | 測試 | .venv\Scripts\python -m pytest |
-| 結束 | 終端機按 Ctrl+C；辨識中的 llama-server 一併關閉 |
+| 結束 | 終端機按 Ctrl+C，或系統匣圖示右鍵「結束」；辨識中的 llama-server 一併關閉 |
+| 建置 exe | .\build.ps1 |
+| 啟動建置版 | 雙擊 build\Gamersive-Translate.dist\Gamersive-Translate.exe |
 | 讀 debug log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\debug.log" |
 | 讀 llama-server log | Get-Content -Encoding UTF8 "$env:LOCALAPPDATA\Gamersive-Translate\llama-server.log" |
 
@@ -83,6 +85,10 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 | 設定檔 | %LOCALAPPDATA%\Gamersive-Translate\config.json，API key 一併存放 |
 | 聆聽 | 語言偵測用 Google Cloud Translation Basic（v2）的 detect，API key 為 google_api_key；Windows 有該語言語音時用 QtTextToSpeech；其餘用 OpenAI 語音：POST {openai_base_url}/audio/speech，Authorization: Bearer {openai_api_key}，model gpt-4o-mini-tts、voice alloy、mp3，以 QtMultimedia 播放 |
 | 拼音 | uroman 1.3.1.1，本機執行 |
+| 打包 | pyside6-deploy（Nuitka 4.1.1）standalone 資料夾模式，設定檔 pysidedeploy.spec，輸出 build\Gamersive-Translate.dist\（build/ 已列入 .gitignore），exe 名稱 Gamersive-Translate.exe，圖示 assets\icon.ico；Nuitka 額外參數：--noinclude-qt-translations、--windows-console-mode=attach、--include-package-data=rapidocr、--include-package-data=uroman、--include-package=rapidocr、--include-package=huggingface_hub、--include-package=surya；發佈管道為 Steam |
+| 建置腳本 | build.ps1：Gamersive-Translate 執行中時停止並提示從托盤結束；刪除舊的 build\Gamersive-Translate.dist 後執行 pyside6-deploy；把 llama.cpp-cuda\ 與 assets\ 複製到 exe 所在資料夾；逐項檢查 12 項：Gamersive-Translate.exe、llama.cpp-cuda\llama-server.exe、assets\icon.png、assets\icon.ico、rapidocr\config.yaml、rapidocr\default_models.yaml、rapidocr\models\ 的 PP-OCRv6_det_small.onnx、PP-OCRv6_rec_small.onnx、ch_PP-OCRv5_det_mobile.onnx、ch_PP-OCRv5_rec_mobile.onnx、ch_ppocr_mobile_v2.0_cls_mobile.onnx、uroman\data；全部存在時顯示「全部檢查通過：{資料夾}」，否則列出缺少項目並顯示「缺少 N 項」 |
+| 程式根目錄 | 原始碼執行時為專案根目錄；建置版為 exe 所在資料夾；llama.cpp-cuda\ 與 assets\ 從程式根目錄讀取 |
+| llama-server 啟動方式 | stdin 為 DEVNULL；Windows 上以 CREATE_NEW_PROCESS_GROUP 與 CREATE_NO_WINDOW 啟動，雙擊 exe 時不顯示主控台視窗 |
 
 ### 視覺規格
 
@@ -203,7 +209,8 @@ Windows 遊戲內翻譯工具。平時收在螢幕右緣（可改左緣），需
 - Alt+Tab 清單中的「Gamersive-Translate」為一個 1x1、位於所有螢幕範圍外的主視窗；面板取得前景後隱藏主視窗，面板收合後以不啟用方式重新顯示。
 - 程式啟動時與每次面板收合後，主視窗短暫取得前景再交還原本的 app；交接期間不觸發展開與收合。
 - 「Gamersive-Translate」在 Alt+Tab 清單排第二。
-- 工作列有「Gamersive-Translate」按鈕，面板展開期間消失。
+- 工作列有「Gamersive-Translate」按鈕，面板展開期間消失；工作列按鈕與 Alt+Tab 清單使用程式圖示 assets\icon.png（AppUserModelID SevidLim.GamersiveTranslate）。
+- 系統匣有程式圖示，滑鼠停留顯示「Gamersive-Translate」；右鍵選單只有「結束」，選單為無邊框深色圓角半透明（底色 rgba(32, 32, 40, 0.80)、1px 白色 16% 邊框）。
 - 面板位置：設定頁「面板位置」列，右側為「左側 ◯━ 右側」滑動開關，圓鈕在右＝右側（預設）。點開關時圓鈕滑到另一側（180ms，位移曲線），面板正中央顯示深色確認浮層「切換到{左側／右側}？」與「確定」「取消」；浮層顯示期間分頁列、引擎選單與分頁內容停用，鍵盤焦點在「確定」，Enter＝確定，Esc＝取消（浮層關閉後再按 Esc 才收合面板）。確定：邊條移到所選螢幕的該側邊緣，面板立即改貼該側，之後由該側邊緣展開；取消、或浮層顯示中面板收合：圓鈕滑回原側。存於 config.json 的 side（"right"／"left"）。左側時面板內容貼視窗右緣，展開時從左緣滑出。
 - 面板預設貼主螢幕右緣。設定頁的螢幕下拉清單可切換螢幕，選項為「{螢幕型號} {寬}x{高}」；切換後邊條、面板與 OCR 截圖改到所選螢幕。config.json 的 screen 記所選螢幕的 QScreen.name()；記下的螢幕不存在或為空時使用 Windows 顯示設定的主螢幕。程式執行中螢幕增減時（接上外接螢幕、Win+P 切換），螢幕清單即時更新；目前所在螢幕被移除時改用主螢幕。
 - 設定頁的「動畫」開關預設開（config.json 的 animation）。關閉時展開與收合立即切換；收合完成後滑鼠在邊條停留滿 1 秒才展開。
