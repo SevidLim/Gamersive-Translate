@@ -11,8 +11,8 @@ if (Test-Path $out) { Remove-Item $out -Recurse -Force }   # pyside6-deploy 以 
 New-Item -ItemType Directory -Force build | Out-Null
 & .\.venv\Scripts\pyside6-deploy -c pysidedeploy.spec -f
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-$dist = Get-ChildItem build -Directory -Filter *.dist | Select-Object -First 1
-if (-not $dist) { throw "找不到建置資料夾 build\*.dist" }
+$dist = Get-Item $out -ErrorAction SilentlyContinue
+if (-not $dist) { throw "找不到建置資料夾 build\Gamersive-Translate.dist" }
 foreach ($name in "llama.cpp-cuda", "assets") {
     $target = Join-Path $dist.FullName $name
     if (Test-Path $target) { Remove-Item $target -Recurse -Force }   # 目的地已有同名資料夾時先刪除
