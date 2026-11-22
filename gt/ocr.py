@@ -95,8 +95,10 @@ class SuryaEngine:
                 [str(self._binary), "-m", model, "--mmproj", mmproj, "-ngl", "99", "--host", "127.0.0.1",
                  "--port", str(port), "--parallel", "8", "--ctx-size", str(8 * 12288),
                  "--alias", SURYA_MODEL, "--jinja", "--special"],
+                stdin=subprocess.DEVNULL,                # 雙擊 exe 啟動時，未指定 stdin 會出現 WinError 6
                 stdout=self._log_fp, stderr=subprocess.STDOUT,
-                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                # CREATE_NO_WINDOW：llama-server 是主控台程式，從無主控台的 exe 啟動時不顯示主控台視窗
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception:
             self._log_fp.close()                     # 啟動不了（例如找不到 exe）也關閉 log 檔
             self._log_fp = None

@@ -1,6 +1,7 @@
 """OCR 引擎共同介面：以固定遊戲截圖（2560x1440，英文任務文字與俄文標語）驗證辨識出的文字區塊；
 備用切換與 llama-server 啟動關閉以假引擎、假行程驗證。"""
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -70,6 +71,17 @@ def test_surya_closes_llama_server_after_recognize(monkeypatch):
     monkeypatch.setattr(engine, "_run", lambda image, port: ["x"])
     assert engine.recognize(np.zeros((1, 1, 3), np.uint8)) == ["x"]
     assert proc.terminated and proc.waited
+
+
+def test_surya_starts_llama_server_with_stdin_devnull(monkeypatch):
+    proc, calls = _Proc(), []
+    engine = SuryaEngine(popen=lambda *a, **k: (calls.append(k), proc)[1], probe=lambda url: True,
+                         model_files=lambda: ("m", "mm"))
+    monkeypatch.setattr(engine, "_run", lambda image, port: [])
+    engine.recognize(np.zeros((1, 1, 3), np.uint8))
+    assert calls[0]["stdin"] is subprocess.DEVNULL
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):          # Windows：不顯示 llama-server 的主控台視窗
+        assert calls[0]["creationflags"] & subprocess.CREATE_NO_WINDOW
 
 
 def test_surya_startup_timeout_raises_and_closes_llama_server():

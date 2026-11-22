@@ -1,6 +1,7 @@
 """loading 按鈕：loading → 成功顯示 ✓ 再換回、失敗直接換回；loading 與 ✓ 期間停用。"""
 
 import os
+import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -8,12 +9,27 @@ import pytest
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from gt.ui import COLLAPSE_MS, DONE_MS, EXPAND_MS, SHAKE_MS, LoadingButton
+from gt.ui import LoadingButton
 
 
 @pytest.fixture(scope="module")
 def app():
     return QApplication.instance() or QApplication([])
+
+
+def wait_until(cond, timeout_ms=3000):
+    """處理事件直到 cond() 為真或逾時；回傳 (是否成立, 經過毫秒)。動畫由 Qt 計時器推進，等待時間依實際進度。"""
+    start = time.monotonic()
+    while not cond() and (time.monotonic() - start) * 1000 < timeout_ms:
+        QTest.qWait(10)
+    return cond(), round((time.monotonic() - start) * 1000)
+
+
+def anim_info(b):
+    """失敗訊息用：按鈕與各動畫的狀態。"""
+    return (f"state={b.state} shape={b._shape} ret={b._ret} phase={b._phase} "
+            f"shape_anim={b._shape_anim.state()} t={b._shape_anim.currentTime()}/{b._shape_anim.duration()} "
+            f"spin={b._spin.state()} ret_anim={b._ret_anim.state()} done_timer={b._done_timer.isActive()}")
 
 
 def make(app, animated, morph=True, celebrate=False):
@@ -30,8 +46,9 @@ def test_success_shows_check_then_idle(app):
     assert b.state == "loading" and not b.isEnabled()
     b.finish(True)
     assert b.state == "done" and not b.isEnabled()
-    QTest.qWait(DONE_MS + 100)
-    assert b.state == "idle" and b.isEnabled()
+    ok, ms = wait_until(lambda: b.state == "idle")
+    print(f"[timing] success_shows_check_then_idle idle={ms}ms")
+    assert ok and b.isEnabled(), anim_info(b)
 
 
 def test_failure_returns_to_idle(app):
@@ -74,12 +91,14 @@ def test_animation_off_spinner_still(app):
 def test_animated_morph_and_spin(app):
     b = make(app, animated=True)
     b.start_loading()
-    QTest.qWait(COLLAPSE_MS + 150)
-    assert b._shape == 1.0 and b._spin.state() == b._spin.State.Running
+    ok, ms = wait_until(lambda: b._shape == 1.0 and b._spin.state() == b._spin.State.Running)
+    print(f"[timing] animated_morph_and_spin collapse={ms}ms")
+    assert ok, anim_info(b)
     b.finish(True)
-    assert b._spin.state() == b._spin.State.Stopped
-    QTest.qWait(EXPAND_MS + 150)
-    assert b._shape == 0.0 and b.state == "done"
+    assert b._spin.state() == b._spin.State.Stopped, anim_info(b)
+    ok, ms = wait_until(lambda: b._shape == 0.0 and b.state == "done")
+    print(f"[timing] animated_morph_and_spin expand={ms}ms")
+    assert ok, anim_info(b)
 
 
 def test_icon_button_keeps_shape(app):
@@ -95,19 +114,22 @@ def test_listen_check_then_stop_icon(app):
     b.start_loading()
     b.finish(True)
     assert b.state == "done" and b.isEnabled()          # ✓ 期間可按（停止）
-    QTest.qWait(DONE_MS + 50)
-    assert b.state == "playing" and b.isEnabled()       # ⏹
+    ok, ms = wait_until(lambda: b.state == "playing")
+    print(f"[timing] listen_check_then_stop_icon playing={ms}ms")
+    assert ok and b.isEnabled(), anim_info(b)       # ⏹
 
 
 def test_listen_ended_while_playing_returns_with_animation(app):
     b = make(app, animated=True, morph=False, celebrate=True)
     b.start_loading()
     b.finish(True)
-    QTest.qWait(DONE_MS + 50)
+    ok, ms = wait_until(lambda: b.state == "playing")
+    assert ok, anim_info(b)
     b.ended()
-    assert b.state == "returning" and b._from == "stop" and b._phase == "shrink"
-    QTest.qWait(COLLAPSE_MS + EXPAND_MS + SHAKE_MS + 300)
-    assert b.state == "idle" and b.isEnabled()
+    assert b.state == "returning" and b._from == "stop" and b._phase == "shrink", anim_info(b)
+    ok, ms = wait_until(lambda: b.state == "idle")
+    print(f"[timing] listen_ended_while_playing idle={ms}ms")
+    assert ok and b.isEnabled(), anim_info(b)
 
 
 def test_listen_ended_during_check_shrinks_check(app):
@@ -122,8 +144,8 @@ def test_listen_ended_animation_off_returns_directly(app):
     b = make(app, animated=False, morph=False, celebrate=True)
     b.start_loading()
     b.finish(True)
-    QTest.qWait(DONE_MS + 100)
-    assert b.state == "playing"
+    ok, ms = wait_until(lambda: b.state == "playing")
+    assert ok, anim_info(b)
     b.ended()
     assert b.state == "idle" and b.isEnabled()
 
@@ -139,10 +161,11 @@ def test_loading_interrupts_return(app):
     b = make(app, animated=True, morph=False, celebrate=True)
     b.start_loading()
     b.finish(True)
-    QTest.qWait(DONE_MS + 50)
+    ok, ms = wait_until(lambda: b.state == "playing")
+    assert ok, anim_info(b)
     b.ended()
     b.start_loading()
-    assert b.state == "loading" and b._phase is None
+    assert b.state == "loading" and b._phase is None, anim_info(b)
 
 
 def test_second_return_after_shake_keeps_numeric_value(app):
@@ -153,6 +176,7 @@ def test_second_return_after_shake_keeps_numeric_value(app):
         b.start_loading()
         b.finish(True)
         b.ended()
-        QTest.qWait(COLLAPSE_MS + EXPAND_MS + SHAKE_MS + 300)
-        assert b.state == "idle"
+        ok, ms = wait_until(lambda: b.state == "idle")
+        print(f"[timing] second_return idle={ms}ms")
+        assert ok, anim_info(b)
     assert None not in seen and isinstance(b._ret, float)
